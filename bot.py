@@ -257,7 +257,7 @@ async def adminhelp(interaction: discord.Interaction):
 
 
 # =========================================================
-# VIP SYSTEM (DISESUAIKAN DENGAN SCRIPT YANG ANDA KIRIM)
+# VIP SYSTEM
 # =========================================================
 def make_vip_embed(message_id: int | str):
     session = get_session(message_id)
@@ -363,10 +363,6 @@ class JoinModal(Modal):
             await interaction.response.send_message("Slot sudah penuh.", ephemeral=True)
             return
 
-        if any(item["user_id"] == interaction.user.id for item in session["list"]):
-            await interaction.response.send_message("Kamu sudah ada di list VIP ini.", ephemeral=True)
-            return
-
         session["list"].append({
             "id": str(uuid.uuid4()),
             "user_id": interaction.user.id,
@@ -389,11 +385,11 @@ class DeleteSelect(Select):
         vip_list = session["list"]
 
         options = []
-        for data in vip_list:
+        for idx, data in enumerate(vip_list, start=1):
             if data["user_id"] == user_id:
                 options.append(
                     discord.SelectOption(
-                        label=data["roblox"][:100],
+                        label=f"{idx}. {data['roblox']}"[:100],
                         value=data["id"]
                     )
                 )
@@ -1188,9 +1184,11 @@ async def on_message(message: discord.Message):
     content = message.content.strip()
     if content.startswith("!") and len(content) > 1:
         trigger = normalize_trigger(content.split()[0])
+
         if trigger in CUSTOM_PRICELISTS:
             payload = CUSTOM_PRICELISTS[trigger]
             files = []
+
             for image_path in payload.get("images", []):
                 path = Path(image_path)
                 if path.exists():
