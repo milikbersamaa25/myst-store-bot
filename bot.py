@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord import app_commands
 from discord.ext import commands
-from discord.ui import Button, Modal, Select, TextInput, View
+from discord.ui import View, Button, Modal, TextInput, Select
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 WIB = ZoneInfo("Asia/Jakarta")
@@ -30,12 +30,16 @@ BUYER_PRICELIST_DIR.mkdir(exist_ok=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 vip_sessions: dict[str, dict] = {}
 kasir_sessions: dict[str, dict] = {}
 
 
+# =========================================================
+# UTIL
+# =========================================================
 def load_json(path: Path, default):
     if not path.exists():
         return default
@@ -79,6 +83,11 @@ def normalize_trigger(text: str) -> str:
     return text.strip().lower().lstrip("!")
 
 
+def calculate_price(robux: int, rate: int) -> int:
+    raw_price = robux * rate
+    return ((raw_price + 499) // 500) * 500
+
+
 def parse_slot_numbers(text: str) -> list[int]:
     raw = text.replace(" ", "")
     if not raw:
@@ -88,6 +97,7 @@ def parse_slot_numbers(text: str) -> list[int]:
     for part in raw.split(","):
         if not part:
             continue
+
         if "-" in part:
             start_str, end_str = part.split("-", 1)
             start = int(start_str)
@@ -107,10 +117,32 @@ def parse_slot_numbers(text: str) -> list[int]:
     return sorted(result)
 
 
-def calculate_price(robux: int, rate: int) -> int:
-    raw_price = robux * rate
-    return ((raw_price + 499) // 500) * 500
+def build_product_choices(current: str):
+    current_key = normalize_key(current)
+    result = []
+    for product in PRODUCTS:
+        if not current_key or current_key in normalize_key(product["name"]):
+            result.append(
+                app_commands.Choice(
+                    name=product["name"][:100],
+                    value=product["name"][:100]
+                )
+            )
+        if len(result) >= 25:
+            break
+    return result
 
+
+async def product_autocomplete(interaction: discord.Interaction, current: str):
+    return build_product_choices(current)
+
+
+# =========================================================
+# STORAGE
+# =========================================================
+PRODUCTS = load_json(PRODUCT_FILE, [])
+CUSTOM_PRICELISTS = load_json(CUSTOM_PRICELIST_FILE, {})
+vip_sessions = load_json(VIP_FILE, {})
 
 BUYER_DATA = {
     "fishit": {
@@ -145,10 +177,6 @@ BUYER_DATA = {
     }
 }
 
-PRODUCTS = load_json(PRODUCT_FILE, [])
-CUSTOM_PRICELISTS = load_json(CUSTOM_PRICELIST_FILE, {})
-vip_sessions = load_json(VIP_FILE, {})
-
 
 def save_products():
     save_json(PRODUCT_FILE, PRODUCTS)
@@ -178,17 +206,6 @@ def find_product_by_name(name: str):
     return None
 
 
-async def product_autocomplete(interaction: discord.Interaction, current: str):
-    current_key = normalize_key(current)
-    choices = []
-    for product in PRODUCTS:
-        if not current_key or current_key in normalize_key(product["name"]):
-            choices.append(app_commands.Choice(name=product["name"][:100], value=product["name"][:100]))
-        if len(choices) >= 25:
-            break
-    return choices
-
-
 # =========================================================
 # HELP COMMANDS
 # =========================================================
@@ -203,9 +220,12 @@ async def viphelp(interaction: discord.Interaction):
         "Edit slot VIP berdasarkan message ID.\n\n"
         "`/pay`\n"
         "Ubah status paid/unpaid beberapa slot sekaligus.\n\n"
+        "`/delete`\n"
+        "Hapus slot tertentu berdasarkan message ID.\n\n"
         "**Contoh:**\n"
         "`/editslot message_id:123456789 nomor:1 roblox:ABC member:@User`\n"
-        "`/pay message_id:123456789 slots:1,2,3 atau 1-5 status:paid`"
+        "`/pay message_id:123456789 slots:1,2,3 status:paid`\n"
+        "`/delete message_id:123456789 nomor:3`"
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -217,9 +237,10 @@ async def adminhelp(interaction: discord.Interaction):
         "**VIP:**\n"
         "`!vip` - Buat list VIP\n"
         "`/editslot` - Edit slot VIP\n"
-        "`/pay` - Update payment slot VIP\n\n"
+        "`/pay` - Update payment slot VIP\n"
+        "`/delete` - Hapus slot VIP\n\n"
         "**Kasir:**\n"
-        "`/kasir` - Buka kasir dan isi rate harian\n"
+        "`/kasir` - Mulai kasir dengan rate harian\n"
         "`/produk_tambah` - Tambah produk katalog kasir\n"
         "`/produk_edit` - Edit produk katalog kasir\n"
         "`/produk_hapus` - Hapus produk katalog kasir\n"
@@ -230,50 +251,59 @@ async def adminhelp(interaction: discord.Interaction):
         "**Command ! custom:**\n"
         "`/pricelistedit` - Tambah/edit/hapus command ! custom\n\n"
         "**Catatan:**\n"
-        "Kasir menggunakan harga otomatis dari `robux x rate harian`, lalu dibulatkan ke atas ke kelipatan 500."
+        "Harga kasir = `robux x rate`, lalu dibulatkan ke atas ke kelipatan 500."
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # =========================================================
-# VIP LIST
+# VIP SYSTEM (DISESUAIKAN DENGAN SCRIPT YANG ANDA KIRIM)
 # =========================================================
 def make_vip_embed(message_id: int | str):
     session = get_session(message_id)
     info = session["info"]
     vip_list = session["list"]
 
-    lines = ["✦·┈๑⋅⋯  ⋯⋅๑┈·✦"]
+    lines = []
     title = "💎 VIP X8 LUCK BY MYST STORE 💎"
 
     if info:
-        lines.append(f"* TANGGAL : {info.get('waktu', '-')}")
-        lines.append(f"* DURASI  : {info.get('durasi_waktu', '-')}")
-        lines.append(f"* HARGA   : {info.get('harga', '-')}")
-        lines.append(f"* PS      : {info.get('ps', '-')}")
+        lines.append("```")
+        lines.append(f"TANGGAL : {info.get('waktu', '-')}")
+        lines.append(f"DURASI  : {info.get('durasi_waktu', '-')}")
+        lines.append(f"HARGA   : {info.get('harga', '-')}")
+        lines.append(f"PS      : {info.get('ps', '-')}")
         if info.get("server"):
-            lines.append(f"* SERVER  : {info.get('server')}")
+            lines.append(f"SERVER  : {info.get('server')}")
+        lines.append("```")
     else:
         lines.append("_Belum diatur oleh admin_")
 
     lines.append("")
     lines.append("**──.✦ LIST SLOT**")
 
-    for index, data in enumerate(vip_list, start=1):
+    index = 1
+    for data in vip_list:
         line = f"{index}. {data['roblox']} — {data['mention']}"
         if data.get("paid"):
             line += " | ✅"
         lines.append(line)
+        index += 1
 
-    for index in range(len(vip_list) + 1, MAX_SLOT + 1):
+    while index <= MAX_SLOT:
         lines.append(f"{index}.")
+        index += 1
 
     lines.append("")
     lines.append("*Payment akan dibuka setelah semua list penuh ya guys!*")
     lines.append("*Terimakasih! —Myst MOD :3*")
 
-    embed = discord.Embed(title=title, description="\n".join(lines), color=COLOR)
-    embed.set_footer(text=f"{len(session['list'])}/{MAX_SLOT} slot")
+    embed = discord.Embed(
+        title=title,
+        description="\n".join(lines),
+        color=COLOR
+    )
+    embed.set_footer(text=f"{len(vip_list)}/{MAX_SLOT} slot")
     return embed
 
 
@@ -281,13 +311,20 @@ class VipSetupModal(Modal):
     def __init__(self, message_id: int):
         super().__init__(title="Atur Info VIP (Admin)")
         self.message_id = message_id
+
         self.waktu = TextInput(label="Tanggal")
         self.durasi_waktu = TextInput(label="Durasi")
         self.harga = TextInput(label="Harga")
         self.ps = TextInput(label="PS / Host")
         self.server = TextInput(label="Server (opsional)", required=False)
 
-        for item in (self.waktu, self.durasi_waktu, self.harga, self.ps, self.server):
+        for item in (
+            self.waktu,
+            self.durasi_waktu,
+            self.harga,
+            self.ps,
+            self.server
+        ):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -312,17 +349,22 @@ class JoinModal(Modal):
     def __init__(self, message_id: int):
         super().__init__(title="Ikut VIP")
         self.message_id = message_id
-        self.roblox = TextInput(label="Username Roblox", placeholder="Contoh: KennMyst")
+
+        self.roblox = TextInput(
+            label="Username Roblox",
+            placeholder="Contoh : KennMyst"
+        )
         self.add_item(self.roblox)
 
     async def on_submit(self, interaction: discord.Interaction):
         session = get_session(self.message_id)
+
         if len(session["list"]) >= MAX_SLOT:
             await interaction.response.send_message("Slot sudah penuh.", ephemeral=True)
             return
 
         if any(item["user_id"] == interaction.user.id for item in session["list"]):
-            await interaction.response.send_message("Kamu sudah terdaftar di list VIP ini.", ephemeral=True)
+            await interaction.response.send_message("Kamu sudah ada di list VIP ini.", ephemeral=True)
             return
 
         session["list"].append({
@@ -342,15 +384,27 @@ class JoinModal(Modal):
 class DeleteSelect(Select):
     def __init__(self, message_id: int, user_id: int):
         self.message_id = message_id
+
+        session = get_session(message_id)
+        vip_list = session["list"]
+
         options = []
-        for data in get_session(message_id)["list"]:
+        for data in vip_list:
             if data["user_id"] == user_id:
-                options.append(discord.SelectOption(label=data["roblox"][:100], value=data["id"]))
+                options.append(
+                    discord.SelectOption(
+                        label=data["roblox"][:100],
+                        value=data["id"]
+                    )
+                )
 
         if not options:
             options.append(discord.SelectOption(label="Tidak ada slot", value="none"))
 
-        super().__init__(placeholder="Pilih slot kamu", options=options)
+        super().__init__(
+            placeholder="Pilih slot kamu",
+            options=options
+        )
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
@@ -358,15 +412,16 @@ class DeleteSelect(Select):
             return
 
         session = get_session(self.message_id)
+        vip_list = session["list"]
         slot_id = self.values[0]
 
-        for i, data in enumerate(session["list"]):
+        for i, data in enumerate(vip_list):
             if data["id"] == slot_id:
                 if data["user_id"] != interaction.user.id:
                     await interaction.response.send_message("Bukan slot kamu.", ephemeral=True)
                     return
 
-                session["list"].pop(i)
+                vip_list.pop(i)
                 save_vip_sessions()
 
                 msg = await interaction.channel.fetch_message(self.message_id)
@@ -390,18 +445,16 @@ class VipView(View):
 
     @discord.ui.button(label="+ Ikut", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: Button):
-        if self.message_id == 0:
-            self.message_id = interaction.message.id
         if len(get_session(self.message_id)["list"]) >= MAX_SLOT:
             await interaction.response.send_message("Slot sudah penuh.", ephemeral=True)
             return
+
         await interaction.response.send_modal(JoinModal(self.message_id))
 
     @discord.ui.button(label="- Hapus slot saya", style=discord.ButtonStyle.danger)
     async def delete(self, interaction: discord.Interaction, button: Button):
-        if self.message_id == 0:
-            self.message_id = interaction.message.id
         session = get_session(self.message_id)
+
         if not any(x["user_id"] == interaction.user.id for x in session["list"]):
             await interaction.response.send_message("Kamu belum punya slot.", ephemeral=True)
             return
@@ -414,17 +467,14 @@ class VipView(View):
 
     @discord.ui.button(label="✏️ Atur Info (Admin)", style=discord.ButtonStyle.primary)
     async def setup(self, interaction: discord.Interaction, button: Button):
-        if self.message_id == 0:
-            self.message_id = interaction.message.id
         if not is_admin(interaction.user):
             await interaction.response.send_message("Hanya admin.", ephemeral=True)
             return
+
         await interaction.response.send_modal(VipSetupModal(self.message_id))
 
     @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary)
     async def refresh(self, interaction: discord.Interaction, button: Button):
-        if self.message_id == 0:
-            self.message_id = interaction.message.id
         msg = await interaction.channel.fetch_message(self.message_id)
         await msg.edit(embed=make_vip_embed(self.message_id), view=VipView(self.message_id))
         await interaction.response.send_message("Direfresh.", ephemeral=True)
@@ -434,21 +484,58 @@ class VipView(View):
 async def vip(ctx: commands.Context):
     msg = await ctx.send(embed=discord.Embed(title="Membuat list VIP...", color=COLOR))
     get_session(msg.id)
+    save_vip_sessions()
+
     await msg.edit(embed=make_vip_embed(msg.id), view=VipView(msg.id))
+
     try:
         await ctx.message.delete()
     except discord.HTTPException:
         pass
 
 
-@bot.tree.command(name="editslot", description="Edit slot VIP berdasarkan message ID")
+@bot.tree.command(name="delete", description="Admin: hapus slot VIP")
+@app_commands.describe(message_id="ID pesan VIP", nomor="Nomor slot")
+async def slash_delete(interaction: discord.Interaction, message_id: str, nomor: int):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message("Hanya admin.", ephemeral=True)
+        return
+
+    try:
+        mid = int(message_id)
+    except ValueError:
+        await interaction.response.send_message("Message ID tidak valid.", ephemeral=True)
+        return
+
+    session = vip_sessions.get(str(mid))
+    if not session:
+        await interaction.response.send_message("List tidak ditemukan.", ephemeral=True)
+        return
+
+    vip_list = session["list"]
+    index = nomor - 1
+
+    if index < 0 or index >= len(vip_list):
+        await interaction.response.send_message("Nomor slot tidak valid.", ephemeral=True)
+        return
+
+    vip_list.pop(index)
+    save_vip_sessions()
+
+    msg = await interaction.channel.fetch_message(mid)
+    await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
+
+    await interaction.response.send_message("Slot berhasil dihapus.", ephemeral=True)
+
+
+@bot.tree.command(name="editslot", description="Admin: edit slot VIP")
 @app_commands.describe(
-    message_id="Message ID dari pesan VIP",
+    message_id="ID pesan VIP",
     nomor="Nomor slot",
     roblox="Username Roblox",
-    member="Member Discord untuk slot tersebut"
+    member="User Discord"
 )
-async def editslot_slash(
+async def slash_edit(
     interaction: discord.Interaction,
     message_id: str,
     nomor: int,
@@ -456,21 +543,29 @@ async def editslot_slash(
     member: discord.Member
 ):
     if not is_admin(interaction.user):
-        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
+        await interaction.response.send_message("Hanya admin.", ephemeral=True)
         return
 
-    session = vip_sessions.get(str(message_id))
+    try:
+        mid = int(message_id)
+    except ValueError:
+        await interaction.response.send_message("Message ID tidak valid.", ephemeral=True)
+        return
+
+    session = vip_sessions.get(str(mid))
     if not session:
-        await interaction.response.send_message("❌ List VIP dengan message ID itu tidak ditemukan.", ephemeral=True)
+        await interaction.response.send_message("List tidak ditemukan.", ephemeral=True)
         return
 
     vip_list = session["list"]
+
     if nomor < 1 or nomor > MAX_SLOT:
-        await interaction.response.send_message(f"❌ Nomor slot harus 1 sampai {MAX_SLOT}.", ephemeral=True)
+        await interaction.response.send_message("Nomor slot tidak valid.", ephemeral=True)
         return
 
     index = nomor - 1
-    while len(vip_list) < index:
+
+    while len(vip_list) <= index:
         vip_list.append({
             "id": str(uuid.uuid4()),
             "user_id": 0,
@@ -479,97 +574,86 @@ async def editslot_slash(
             "paid": False
         })
 
-    data = {
+    vip_list[index] = {
         "id": str(uuid.uuid4()),
         "user_id": member.id,
         "mention": member.mention,
         "roblox": roblox.strip(),
         "paid": False
     }
-
-    if index < len(vip_list):
-        vip_list[index] = data
-    else:
-        vip_list.append(data)
-
     save_vip_sessions()
 
-    try:
-        msg = await interaction.channel.fetch_message(int(message_id))
-        await msg.edit(embed=make_vip_embed(message_id), view=VipView(int(message_id)))
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Slot tersimpan, tapi pesan gagal diupdate: {e}", ephemeral=True)
-        return
+    msg = await interaction.channel.fetch_message(mid)
+    await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
 
-    await interaction.response.send_message("✅ Slot berhasil diubah.", ephemeral=True)
+    await interaction.response.send_message("Slot berhasil diedit.", ephemeral=True)
 
 
-@bot.tree.command(name="pay", description="Update status paid/unpaid beberapa slot VIP berdasarkan message ID")
+@bot.tree.command(name="pay", description="Admin: update payment slot VIP")
 @app_commands.describe(
-    message_id="Message ID dari pesan VIP",
-    slots="Contoh: 1,2,3 atau 1-5 atau 1,2,4-7",
+    message_id="ID pesan VIP",
+    slots="Contoh: 1,2,10 atau 1-5",
     status="Status pembayaran"
 )
 @app_commands.choices(status=[
     app_commands.Choice(name="paid", value="paid"),
     app_commands.Choice(name="unpaid", value="unpaid")
 ])
-async def pay_slash(
+async def slash_paid(
     interaction: discord.Interaction,
     message_id: str,
     slots: str,
     status: app_commands.Choice[str]
 ):
     if not is_admin(interaction.user):
-        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
-        return
-
-    session = vip_sessions.get(str(message_id))
-    if not session:
-        await interaction.response.send_message("❌ List VIP dengan message ID itu tidak ditemukan.", ephemeral=True)
+        await interaction.response.send_message("Hanya admin.", ephemeral=True)
         return
 
     try:
-        slot_numbers = parse_slot_numbers(slots)
+        mid = int(message_id)
+    except ValueError:
+        await interaction.response.send_message("Message ID tidak valid.", ephemeral=True)
+        return
+
+    session = vip_sessions.get(str(mid))
+    if not session:
+        await interaction.response.send_message("List tidak ditemukan.", ephemeral=True)
+        return
+
+    try:
+        numbers = parse_slot_numbers(slots)
     except Exception as e:
-        await interaction.response.send_message(f"❌ Format slot salah: {e}", ephemeral=True)
+        await interaction.response.send_message(f"Format slot salah: {e}", ephemeral=True)
         return
 
     vip_list = session["list"]
-    not_found = []
     updated = []
+    not_found = []
 
-    for nomor in slot_numbers:
-        index = nomor - 1
-        if index < 0 or index >= len(vip_list):
-            not_found.append(str(nomor))
-            continue
-        vip_list[index]["paid"] = status.value == "paid"
-        updated.append(str(nomor))
+    for n in numbers:
+        idx = n - 1
+        if 0 <= idx < len(vip_list):
+            vip_list[idx]["paid"] = status.value == "paid"
+            updated.append(str(n))
+        else:
+            not_found.append(str(n))
 
     save_vip_sessions()
 
-    try:
-        msg = await interaction.channel.fetch_message(int(message_id))
-        await msg.edit(embed=make_vip_embed(message_id), view=VipView(int(message_id)))
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Status tersimpan, tapi pesan gagal diupdate: {e}", ephemeral=True)
-        return
+    msg = await interaction.channel.fetch_message(mid)
+    await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
 
-    result_lines = []
+    lines = []
     if updated:
-        result_lines.append(f"✅ Slot diupdate: {', '.join(updated)} → {status.value}")
+        lines.append(f"✅ Slot diupdate: {', '.join(updated)} → {status.value}")
     if not_found:
-        result_lines.append(f"⚠️ Slot tidak ditemukan: {', '.join(not_found)}")
+        lines.append(f"⚠️ Slot tidak ditemukan: {', '.join(not_found)}")
 
-    if not result_lines:
-        result_lines.append("Tidak ada slot yang berhasil diperbarui.")
-
-    await interaction.response.send_message("\n".join(result_lines), ephemeral=True)
+    await interaction.response.send_message("\n".join(lines) if lines else "Tidak ada slot yang diubah.", ephemeral=True)
 
 
 # =========================================================
-# CEK PRICELIST BUYER
+# BUYER PRICELIST
 # =========================================================
 class GameView(View):
     def __init__(self):
@@ -588,7 +672,7 @@ class GameSelect(Select):
 
 
 class ItemView(View):
-    def __init__(self, game_key):
+    def __init__(self, game_key: str):
         super().__init__(timeout=60)
         options = []
         for item_key, item_name in BUYER_DATA[game_key]["items"].items():
@@ -691,7 +775,7 @@ async def update_pricelist(
 
 
 # =========================================================
-# KASIR DENGAN RATE HARIAN
+# KASIR
 # =========================================================
 def build_kasir_preview_embed(session: dict) -> discord.Embed:
     embed = discord.Embed(title="Preview Kasir", color=COLOR)
@@ -712,7 +796,7 @@ def build_kasir_preview_embed(session: dict) -> discord.Embed:
     else:
         embed.add_field(name="List Pembelian", value="Belum ada item.", inline=False)
 
-    embed.set_footer(text="Semua proses kasir hanya terlihat oleh admin sampai invoice dikirim")
+    embed.set_footer(text="Semua proses kasir hanya terlihat admin sampai invoice dikirim")
     return embed
 
 
@@ -826,6 +910,7 @@ class KasirView(View):
         if not PRODUCTS:
             await interaction.response.send_message("Belum ada katalog produk. Gunakan /produk_tambah dulu.", ephemeral=True)
             return
+
         await interaction.response.send_message(
             "Pilih produk:",
             view=KasirProductPickerView(self.session_id),
@@ -838,6 +923,7 @@ class KasirView(View):
         if not session or not session["items"]:
             await interaction.response.send_message("Belum ada item untuk dihapus.", ephemeral=True)
             return
+
         session["items"].pop()
         await interaction.response.edit_message(
             embed=build_kasir_preview_embed(session),
@@ -850,26 +936,19 @@ class KasirView(View):
         if not session:
             await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
             return
+
         if not session["items"]:
             await interaction.response.send_message("Belum ada item yang dipilih.", ephemeral=True)
             return
 
         await interaction.channel.send(embed=build_kasir_invoice_embed(session))
         kasir_sessions.pop(self.session_id, None)
-        await interaction.response.edit_message(
-            content="✅ Invoice berhasil dikirim ke chat.",
-            embed=None,
-            view=None
-        )
+        await interaction.response.edit_message(content="✅ Invoice berhasil dikirim ke chat.", embed=None, view=None)
 
     @discord.ui.button(label="Batal", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: Button):
         kasir_sessions.pop(self.session_id, None)
-        await interaction.response.edit_message(
-            content="❌ Sesi kasir dibatalkan.",
-            embed=None,
-            view=None
-        )
+        await interaction.response.edit_message(content="❌ Sesi kasir dibatalkan.", embed=None, view=None)
 
 
 class StartKasirModal(Modal):
@@ -886,10 +965,7 @@ class StartKasirModal(Modal):
             return
 
         if not PRODUCTS:
-            await interaction.response.send_message(
-                "Belum ada katalog produk. Tambahkan dulu dengan /produk_tambah",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Belum ada katalog produk. Tambahkan dulu dengan /produk_tambah", ephemeral=True)
             return
 
         try:
@@ -924,7 +1000,7 @@ async def kasir(interaction: discord.Interaction):
 
 
 # =========================================================
-# PRODUK KATALOG KASIR
+# PRODUK KASIR
 # =========================================================
 @bot.tree.command(name="produk_tambah", description="Tambah produk ke katalog kasir")
 @app_commands.describe(nama="Nama produk", robux="Jumlah robux")
@@ -1014,7 +1090,7 @@ async def produk_list(interaction: discord.Interaction):
 
 
 # =========================================================
-# CUSTOM PREFIX PRICELIST
+# CUSTOM ! COMMAND PRICELIST
 # =========================================================
 @bot.tree.command(name="pricelistedit", description="Tambah/edit/hapus command !pricelist custom")
 @app_commands.describe(
@@ -1065,11 +1141,13 @@ async def pricelistedit(
         if not old_data:
             await interaction.response.send_message("Command tidak ditemukan.", ephemeral=True)
             return
+
         folder = CUSTOM_PRICELIST_DIR / key
         if folder.exists():
             for f in folder.iterdir():
                 f.unlink(missing_ok=True)
             folder.rmdir()
+
         save_pricelists()
         await interaction.response.send_message(f"🗑️ Command **!{key}** dihapus.", ephemeral=True)
         return
@@ -1085,6 +1163,7 @@ async def pricelistedit(
         for f in folder.iterdir():
             f.unlink(missing_ok=True)
         stored_images = []
+
         for index, img in enumerate(provided_images, start=1):
             ext = Path(img.filename).suffix.lower() or ".png"
             if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
@@ -1116,12 +1195,19 @@ async def on_message(message: discord.Message):
                 path = Path(image_path)
                 if path.exists():
                     files.append(discord.File(str(path)))
-            await message.channel.send(content=payload.get("text") or None, files=files if files else None)
+
+            await message.channel.send(
+                content=payload.get("text") or None,
+                files=files if files else None
+            )
             return
 
     await bot.process_commands(message)
 
 
+# =========================================================
+# READY / ERROR
+# =========================================================
 @bot.event
 async def on_ready():
     try:
