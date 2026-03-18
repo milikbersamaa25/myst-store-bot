@@ -13,21 +13,22 @@ from discord.ext import commands
 from discord.ui import View, Button, Modal, TextInput, Select
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DATA_DIR = os.getenv("DATA_DIR", "data_store_bot")
 WIB = ZoneInfo("Asia/Jakarta")
 COLOR = 0x00F8FF
 MAX_SLOT = 20
 
-BASE_DIR = Path("data_store_bot")
-BASE_DIR.mkdir(exist_ok=True)
+BASE_DIR = Path(DATA_DIR)
+BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 VIP_FILE = BASE_DIR / "vip_sessions.json"
 PRODUCT_FILE = BASE_DIR / "cashier_products.json"
 CATEGORY_FILE = BASE_DIR / "cashier_categories.json"
-CUSTOM_PRICELIST_FILE = BASE_DIR / "custom_pricelists.json"
-CUSTOM_PRICELIST_DIR = BASE_DIR / "pricelist_media"
-CUSTOM_PRICELIST_DIR.mkdir(exist_ok=True)
+CUSTOM_COMMAND_FILE = BASE_DIR / "custom_commands.json"
+CUSTOM_COMMAND_DIR = BASE_DIR / "custom_command_media"
+CUSTOM_COMMAND_DIR.mkdir(parents=True, exist_ok=True)
 BUYER_PRICELIST_DIR = BASE_DIR / "buyer_pricelists"
-BUYER_PRICELIST_DIR.mkdir(exist_ok=True)
+BUYER_PRICELIST_DIR.mkdir(parents=True, exist_ok=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -123,7 +124,7 @@ def parse_slot_numbers(text: str) -> list[int]:
 # =========================================================
 PRODUCTS = load_json(PRODUCT_FILE, [])
 CATEGORIES = load_json(CATEGORY_FILE, [])
-CUSTOM_PRICELISTS = load_json(CUSTOM_PRICELIST_FILE, {})
+CUSTOM_COMMANDS = load_json(CUSTOM_COMMAND_FILE, {})
 vip_sessions = load_json(VIP_FILE, {})
 
 BUYER_DATA = {
@@ -168,8 +169,8 @@ def save_categories():
     save_json(CATEGORY_FILE, CATEGORIES)
 
 
-def save_pricelists():
-    save_json(CUSTOM_PRICELIST_FILE, CUSTOM_PRICELISTS)
+def save_custom_commands():
+    save_json(CUSTOM_COMMAND_FILE, CUSTOM_COMMANDS)
 
 
 def save_vip_sessions():
@@ -256,28 +257,23 @@ async def kasirhelp(interaction: discord.Interaction):
     embed.description = (
         "**Alur penggunaan kasir:**\n\n"
         "1. Buat kategori dulu dengan **`/kategori_tambah`**\n"
-        "   Contoh: `FISH IT`, `SAWAH INDO`, `GROW A GARDEN`\n\n"
         "2. Tambahkan produk ke kategori dengan **`/produk_tambah`**\n"
-        "   Produk berisi nama item + jumlah robux.\n\n"
-        "3. Jalankan **`/kasir`**\n"
-        "   Lalu isi nama customer dan rate hari itu.\n\n"
-        "4. Klik tombol **Tambah Produk**\n"
-        "   Pilih kategori → pilih produk → isi jumlah.\n\n"
-        "5. Kalau sudah selesai, klik **Selesai / Kirim Invoice**\n"
-        "   Bot akan mengirim invoice ke chat.\n\n"
+        "3. Jalankan **`/kasir`** lalu isi nama customer dan rate.\n"
+        "4. Klik **Tambah Produk** → pilih kategori → pilih produk → isi jumlah.\n"
+        "5. Klik **Selesai / Kirim Invoice** untuk kirim invoice ke chat.\n\n"
         "**Catatan:**\n"
         "- Rate hanya diketahui admin.\n"
-        "- Harga customer dihitung dari `robux x rate`, lalu dibulatkan ke atas ke kelipatan 500.\n"
-        "- Invoice yang dikirim ke customer tidak menampilkan rate.\n\n"
-        "**Command kasir yang tersedia:**\n"
-        "`/kategori_tambah` = tambah kategori\n"
-        "`/kategori_hapus` = hapus kategori\n"
-        "`/kategori_list` = lihat kategori\n"
-        "`/produk_tambah` = tambah produk\n"
-        "`/produk_edit` = edit produk\n"
-        "`/produk_hapus` = hapus produk\n"
-        "`/produk_list` = lihat produk\n"
-        "`/kasir` = mulai kasir"
+        "- Harga dihitung dari `robux x rate`, lalu dibulatkan ke atas ke kelipatan 500.\n"
+        "- Invoice customer tidak menampilkan rate.\n\n"
+        "**Command kasir:**\n"
+        "`/kategori_tambah`\n"
+        "`/kategori_hapus`\n"
+        "`/kategori_list`\n"
+        "`/produk_tambah`\n"
+        "`/produk_edit`\n"
+        "`/produk_hapus`\n"
+        "`/produk_list`\n"
+        "`/kasir`"
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -305,7 +301,7 @@ async def adminhelp(interaction: discord.Interaction):
         "**`/cekpricelist`** → customer bisa cek pricelist sendiri secara private.\n"
         "**`/update_pricelist`** → admin update gambar pricelist buyer.\n\n"
         "**Bagian Command Custom:**\n"
-        "**`/pricelistedit`** → menambah, mengedit, menghapus command `!custom` yang bisa mengirim teks/gambar."
+        "**`/tambahcommand`** → menambah, mengedit, menghapus command `!custom` yang bisa mengirim teks/gambar."
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -763,7 +759,7 @@ def build_invoice_embed(session: dict) -> discord.Embed:
 
     lines = [
         f"● **Customer**    :  {customer}",
-        f"● **Tanggal**       :  {tanggal}",
+        f"● **Tanggal**      :  {tanggal}",
         "",
         "**─ .✦ List Pembelian**"
     ]
@@ -1189,9 +1185,9 @@ async def produk_list(interaction: discord.Interaction, kategori: Optional[str] 
 
 
 # =========================================================
-# CUSTOM ! COMMAND PRICELIST
+# CUSTOM ! COMMAND
 # =========================================================
-@bot.tree.command(name="pricelistedit", description="Tambah/edit/hapus command !pricelist custom")
+@bot.tree.command(name="tambahcommand", description="Tambah/edit/hapus command !custom")
 @app_commands.describe(
     action="Aksi yang ingin dilakukan",
     trigger="Nama command tanpa !, contoh: sawahindo",
@@ -1207,7 +1203,7 @@ async def produk_list(interaction: discord.Interaction, kategori: Optional[str] 
     app_commands.Choice(name="delete", value="delete"),
     app_commands.Choice(name="list", value="list")
 ])
-async def pricelistedit(
+async def tambahcommand(
     interaction: discord.Interaction,
     action: app_commands.Choice[str],
     trigger: Optional[str] = None,
@@ -1222,10 +1218,10 @@ async def pricelistedit(
         return
 
     if action.value == "list":
-        if not CUSTOM_PRICELISTS:
+        if not CUSTOM_COMMANDS:
             await interaction.response.send_message("Belum ada command custom.", ephemeral=True)
             return
-        lines = [f"!{key}" for key in sorted(CUSTOM_PRICELISTS.keys())]
+        lines = [f"!{key}" for key in sorted(CUSTOM_COMMANDS.keys())]
         await interaction.response.send_message("Command tersedia:\n" + "\n".join(lines), ephemeral=True)
         return
 
@@ -1236,25 +1232,25 @@ async def pricelistedit(
     key = normalize_trigger(trigger)
 
     if action.value == "delete":
-        old_data = CUSTOM_PRICELISTS.pop(key, None)
+        old_data = CUSTOM_COMMANDS.pop(key, None)
         if not old_data:
             await interaction.response.send_message("Command tidak ditemukan.", ephemeral=True)
             return
 
-        folder = CUSTOM_PRICELIST_DIR / key
+        folder = CUSTOM_COMMAND_DIR / key
         if folder.exists():
             for f in folder.iterdir():
                 f.unlink(missing_ok=True)
             folder.rmdir()
 
-        save_pricelists()
+        save_custom_commands()
         await interaction.response.send_message(f"🗑️ Command **!{key}** dihapus.", ephemeral=True)
         return
 
-    folder = CUSTOM_PRICELIST_DIR / key
+    folder = CUSTOM_COMMAND_DIR / key
     folder.mkdir(parents=True, exist_ok=True)
 
-    existing = CUSTOM_PRICELISTS.get(key, {"text": "", "images": []})
+    existing = CUSTOM_COMMANDS.get(key, {"text": "", "images": []})
     provided_images = [img for img in [image1, image2, image3, image4] if img is not None]
     stored_images = existing.get("images", [])
 
@@ -1271,11 +1267,11 @@ async def pricelistedit(
             await img.save(filepath)
             stored_images.append(str(filepath))
 
-    CUSTOM_PRICELISTS[key] = {
+    CUSTOM_COMMANDS[key] = {
         "text": teks if teks is not None else existing.get("text", ""),
         "images": stored_images
     }
-    save_pricelists()
+    save_custom_commands()
     await interaction.response.send_message(f"✅ Command **!{key}** berhasil disimpan.", ephemeral=True)
 
 
@@ -1288,9 +1284,10 @@ async def on_message(message: discord.Message):
     if content.startswith("!") and len(content) > 1:
         trigger = normalize_trigger(content.split()[0])
 
-        if trigger in CUSTOM_PRICELISTS:
-            payload = CUSTOM_PRICELISTS[trigger]
+        if trigger in CUSTOM_COMMANDS:
+            payload = CUSTOM_COMMANDS[trigger]
             files = []
+
             for image_path in payload.get("images", []):
                 path = Path(image_path)
                 if path.exists():
@@ -1300,6 +1297,11 @@ async def on_message(message: discord.Message):
                 content=payload.get("text") or None,
                 files=files if files else None
             )
+
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass
             return
 
     await bot.process_commands(message)
