@@ -206,12 +206,35 @@ def find_product_by_name(name: str):
     return None
 
 
+def find_product_by_name_and_category(name: str, category: str):
+    name_key = normalize_key(name)
+    category_key = normalize_key(category)
+    for product in PRODUCTS:
+        if normalize_key(product["name"]) == name_key and normalize_key(product["category"]) == category_key:
+            return product
+    return None
+
+
+def find_product_by_id(product_id: str):
+    for product in PRODUCTS:
+        if product.get("id") == product_id:
+            return product
+    return None
+
+
 async def product_autocomplete(interaction: discord.Interaction, current: str):
     current_key = normalize_key(current)
     result = []
     for product in PRODUCTS:
-        if not current_key or current_key in normalize_key(product["name"]):
-            result.append(app_commands.Choice(name=product["name"][:100], value=product["name"][:100]))
+        display = f"[{product['category']}] {product['name']}"
+        search_blob = normalize_key(f"{product['category']} {product['name']}")
+        if not current_key or current_key in search_blob:
+            result.append(
+                app_commands.Choice(
+                    name=display[:100],
+                    value=product["id"]
+                )
+            )
         if len(result) >= 25:
             break
     return result
@@ -323,8 +346,11 @@ def make_vip_embed(message_id: int | str):
         lines.append(f"DURASI  : {info.get('durasi_waktu', '-')}")
         lines.append(f"HARGA   : {info.get('harga', '-')}")
         lines.append(f"PS      : {info.get('ps', '-')}")
-        if info.get("server"):
-            lines.append(f"SERVER  : {info.get('server')}")
+
+        server_value = str(info.get("server", "")).strip()
+        if server_value:
+            lines.append(f"SERVER  : {server_value}")
+
         lines.append("```")
     else:
         lines.append("_Belum diatur oleh admin_")
@@ -376,7 +402,7 @@ class VipSetupModal(Modal):
         info["durasi_waktu"] = self.durasi_waktu.value
         info["harga"] = self.harga.value
         info["ps"] = self.ps.value
-        info["server"] = self.server.value
+        info["server"] = self.server.value.strip()
         save_vip_sessions()
 
         msg = await interaction.channel.fetch_message(self.message_id)
@@ -759,7 +785,7 @@ def build_invoice_embed(session: dict) -> discord.Embed:
 
     lines = [
         f"● **Customer**    :  {customer}",
-        f"● **Tanggal**      :  {tanggal}",
+        f"● **Tanggal**       :  {tanggal}",
         "",
         "**─ .✦ List Pembelian**"
     ]
@@ -1072,8 +1098,8 @@ async def produk_tambah(interaction: discord.Interaction, kategori: str, nama: s
         await interaction.response.send_message("Kategori tidak ditemukan. Buat dulu dengan /kategori_tambah", ephemeral=True)
         return
 
-    if find_product_by_name(nama):
-        await interaction.response.send_message("Produk dengan nama itu sudah ada.", ephemeral=True)
+    if find_product_by_name_and_category(nama, real_category):
+        await interaction.response.send_message("Produk dengan nama itu sudah ada di kategori ini.", ephemeral=True)
         return
 
     if robux <= 0:
@@ -1095,7 +1121,7 @@ async def produk_tambah(interaction: discord.Interaction, kategori: str, nama: s
 
 @bot.tree.command(name="produk_edit", description="Edit produk katalog kasir")
 @app_commands.describe(
-    nama="Nama produk yang ingin diedit",
+    nama="Pilih produk yang ingin diedit",
     kategori_baru="Kategori baru",
     nama_baru="Nama baru",
     robux="Robux baru"
@@ -1112,20 +1138,39 @@ async def produk_edit(
         await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
-    product = find_product_by_name(nama)
+    product = find_product_by_id(nama)
     if not product:
         await interaction.response.send_message("Produk tidak ditemukan.", ephemeral=True)
         return
 
+    target_category = product["category"]
     if kategori_baru:
         real_category = find_category_name(kategori_baru)
         if not real_category:
             await interaction.response.send_message("Kategori baru tidak ditemukan.", ephemeral=True)
             return
-        product["category"] = real_category
+        target_category = real_category
 
-    if nama_baru:
-        product["name"] = nama_baru.strip()
+    target_name = nama_baru.strip() if nama_baru else product["name"]
+
+    duplicate = next(
+        (
+            p for p in PRODUCTS
+            if p["id"] != product["id"]
+            and normalize_key(p["name"]) == normalize_key(target_name)
+            and normalize_key(p["category"]) == normalize_key(target_category)
+        ),
+        None
+    )
+    if duplicate:
+        await interaction.response.send_message(
+            "Sudah ada produk dengan nama yang sama di kategori tujuan.",
+            ephemeral=True
+        )
+        return
+
+    product["category"] = target_category
+    product["name"] = target_name
 
     if robux is not None:
         if robux <= 0:
@@ -1138,21 +1183,24 @@ async def produk_edit(
 
 
 @bot.tree.command(name="produk_hapus", description="Hapus produk katalog kasir")
-@app_commands.describe(nama="Nama produk yang ingin dihapus")
+@app_commands.describe(nama="Pilih produk yang ingin dihapus")
 @app_commands.autocomplete(nama=product_autocomplete)
 async def produk_hapus(interaction: discord.Interaction, nama: str):
     if not is_admin(interaction.user):
         await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
-    product = find_product_by_name(nama)
+    product = find_product_by_id(nama)
     if not product:
         await interaction.response.send_message("Produk tidak ditemukan.", ephemeral=True)
         return
 
     PRODUCTS.remove(product)
     save_products()
-    await interaction.response.send_message(f"🗑️ Produk **{product['name']}** dihapus.", ephemeral=True)
+    await interaction.response.send_message(
+        f"🗑️ Produk **[{product['category']}] {product['name']}** dihapus.",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="produk_list", description="Lihat katalog produk kasir")
