@@ -104,6 +104,7 @@ def parse_slot_numbers(text: str) -> list[int]:
             end = int(end_str)
             if start > end:
                 start, end = end, start
+
             for num in range(start, end + 1):
                 if num < 1 or num > MAX_SLOT:
                     raise ValueError(f"Slot {num} di luar batas 1-{MAX_SLOT}.")
@@ -233,12 +234,50 @@ async def category_autocomplete(interaction: discord.Interaction, current: str):
 async def viphelp(interaction: discord.Interaction):
     embed = discord.Embed(title="Panduan VIP", color=COLOR)
     embed.description = (
-        "**Command VIP:**\n"
-        "`!vip`\n"
-        "`/vip_panel_list`\n"
-        "`/editslot`\n"
-        "`/pay`\n"
-        "`/delete`\n"
+        "**`!vip`**\n"
+        "Membuat panel list VIP baru di chat.\n\n"
+        "**`/editslot`**\n"
+        "Mengubah isi slot tertentu pada panel VIP berdasarkan message ID.\n\n"
+        "**`/pay`**\n"
+        "Mengubah status pembayaran beberapa slot sekaligus menjadi paid atau unpaid.\n\n"
+        "**`/delete`**\n"
+        "Menghapus slot tertentu dari panel VIP berdasarkan message ID.\n\n"
+        "**Contoh:**\n"
+        "`/editslot message_id:123456789 nomor:1 roblox:ABC member:@User`\n"
+        "`/pay message_id:123456789 slots:1,2,3 status:paid`\n"
+        "`/delete message_id:123456789 nomor:3`"
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="kasirhelp", description="Panduan penggunaan kasir")
+async def kasirhelp(interaction: discord.Interaction):
+    embed = discord.Embed(title="Panduan Kasir", color=COLOR)
+    embed.description = (
+        "**Alur penggunaan kasir:**\n\n"
+        "1. Buat kategori dulu dengan **`/kategori_tambah`**\n"
+        "   Contoh: `FISH IT`, `SAWAH INDO`, `GROW A GARDEN`\n\n"
+        "2. Tambahkan produk ke kategori dengan **`/produk_tambah`**\n"
+        "   Produk berisi nama item + jumlah robux.\n\n"
+        "3. Jalankan **`/kasir`**\n"
+        "   Lalu isi nama customer dan rate hari itu.\n\n"
+        "4. Klik tombol **Tambah Produk**\n"
+        "   Pilih kategori → pilih produk → isi jumlah.\n\n"
+        "5. Kalau sudah selesai, klik **Selesai / Kirim Invoice**\n"
+        "   Bot akan mengirim invoice ke chat.\n\n"
+        "**Catatan:**\n"
+        "- Rate hanya diketahui admin.\n"
+        "- Harga customer dihitung dari `robux x rate`, lalu dibulatkan ke atas ke kelipatan 500.\n"
+        "- Invoice yang dikirim ke customer tidak menampilkan rate.\n\n"
+        "**Command kasir yang tersedia:**\n"
+        "`/kategori_tambah` = tambah kategori\n"
+        "`/kategori_hapus` = hapus kategori\n"
+        "`/kategori_list` = lihat kategori\n"
+        "`/produk_tambah` = tambah produk\n"
+        "`/produk_edit` = edit produk\n"
+        "`/produk_hapus` = hapus produk\n"
+        "`/produk_list` = lihat produk\n"
+        "`/kasir` = mulai kasir"
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -247,25 +286,26 @@ async def viphelp(interaction: discord.Interaction):
 async def adminhelp(interaction: discord.Interaction):
     embed = discord.Embed(title="Panduan Admin Bot Toko", color=COLOR)
     embed.description = (
-        "**VIP:**\n"
-        "`!vip`\n"
-        "`/vip_panel_list`\n"
-        "`/editslot`\n"
-        "`/pay`\n"
-        "`/delete`\n\n"
-        "**Kasir:**\n"
-        "`/kasir`\n"
-        "`/kategori_tambah`\n"
-        "`/kategori_hapus`\n"
-        "`/kategori_list`\n"
-        "`/produk_tambah`\n"
-        "`/produk_edit`\n"
-        "`/produk_hapus`\n"
-        "`/produk_list`\n\n"
-        "**Pricelist:**\n"
-        "`/cekpricelist`\n"
-        "`/update_pricelist`\n"
-        "`/pricelistedit`\n"
+        "**Bagian VIP:**\n"
+        "**`!vip`** → membuat panel VIP baru di chat.\n"
+        "**`/editslot`** → mengubah isi slot tertentu pada panel VIP.\n"
+        "**`/pay`** → mengubah status pembayaran slot VIP.\n"
+        "**`/delete`** → menghapus slot tertentu dari panel VIP.\n\n"
+        "**Bagian Kasir:**\n"
+        "**`/kasir`** → memulai sesi kasir dengan input customer dan rate.\n"
+        "**`/kategori_tambah`** → membuat kategori produk kasir.\n"
+        "**`/kategori_hapus`** → menghapus kategori yang tidak dipakai.\n"
+        "**`/kategori_list`** → melihat semua kategori.\n"
+        "**`/produk_tambah`** → menambahkan produk ke kategori tertentu.\n"
+        "**`/produk_edit`** → mengubah nama, kategori, atau robux produk.\n"
+        "**`/produk_hapus`** → menghapus produk.\n"
+        "**`/produk_list`** → melihat daftar produk.\n"
+        "**`/kasirhelp`** → panduan lengkap penggunaan kasir.\n\n"
+        "**Bagian Pricelist Customer:**\n"
+        "**`/cekpricelist`** → customer bisa cek pricelist sendiri secara private.\n"
+        "**`/update_pricelist`** → admin update gambar pricelist buyer.\n\n"
+        "**Bagian Command Custom:**\n"
+        "**`/pricelistedit`** → menambah, mengedit, menghapus command `!custom` yang bisa mengirim teks/gambar."
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -313,7 +353,7 @@ def make_vip_embed(message_id: int | str):
     lines.append("*Terimakasih! —Myst MOD :3*")
 
     embed = discord.Embed(title=title, description="\n".join(lines), color=COLOR)
-    embed.set_footer(text=f"{len(vip_list)}/{MAX_SLOT} slot | Message ID: {message_id}")
+    embed.set_footer(text=f"{len(vip_list)}/{MAX_SLOT} slot")
     return embed
 
 
@@ -380,6 +420,7 @@ class DeleteSelect(Select):
     def __init__(self, message_id: int, user_id: int):
         self.message_id = message_id
         options = []
+
         for idx, data in enumerate(get_session(message_id)["list"], start=1):
             if data["user_id"] == user_id:
                 options.append(discord.SelectOption(label=f"{idx}. {data['roblox']}"[:100], value=data["id"]))
@@ -464,26 +505,6 @@ async def vip(ctx: commands.Context):
         await ctx.message.delete()
     except discord.HTTPException:
         pass
-
-
-@bot.tree.command(name="vip_panel_list", description="Lihat daftar panel VIP beserta message ID")
-async def vip_panel_list(interaction: discord.Interaction):
-    if not is_admin(interaction.user):
-        await interaction.response.send_message("Hanya admin.", ephemeral=True)
-        return
-
-    if not vip_sessions:
-        await interaction.response.send_message("Belum ada panel VIP.", ephemeral=True)
-        return
-
-    lines = []
-    for message_id, data in vip_sessions.items():
-        total = len(data.get("list", []))
-        tanggal = data.get("info", {}).get("waktu", "-")
-        lines.append(f"Message ID: `{message_id}` | Slot: {total}/{MAX_SLOT} | Tanggal: {tanggal}")
-
-    embed = discord.Embed(title="Daftar Panel VIP", description="\n".join(lines[:50]), color=COLOR)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="delete", description="Admin: hapus slot VIP")
@@ -741,10 +762,10 @@ def build_invoice_embed(session: dict) -> discord.Embed:
     tanggal = format_wib()
 
     lines = [
-        f"Customer    :  {customer}",
-        f"Tanggal       :  {tanggal}",
+        f"● **Customer**    :  {customer}",
+        f"● **Tanggal**       :  {tanggal}",
         "",
-        "─ .✦ List Pembelian"
+        "**─ .✦ List Pembelian**"
     ]
 
     total = 0
@@ -756,10 +777,8 @@ def build_invoice_embed(session: dict) -> discord.Embed:
 
     lines.extend([
         "",
-        "─ .✦ Total Pembayaran",
-        format_rupiah(total),
-        "────────────────────────",
-        "© 2026, MYST STORE | https://discord.gg/mystoreroblox"
+        "**─ .✦ Total Pembayaran**",
+        format_rupiah(total)
     ])
 
     embed = discord.Embed(description="\n".join(lines), color=COLOR)
@@ -1033,7 +1052,11 @@ async def kategori_list(interaction: discord.Interaction):
         await interaction.response.send_message("Belum ada kategori.", ephemeral=True)
         return
 
-    embed = discord.Embed(title="Daftar Kategori", description="\n".join(f"{i}. {cat}" for i, cat in enumerate(CATEGORIES, start=1)), color=COLOR)
+    embed = discord.Embed(
+        title="Daftar Kategori",
+        description="\n".join(f"{i}. {cat}" for i, cat in enumerate(CATEGORIES, start=1)),
+        color=COLOR
+    )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -1068,7 +1091,10 @@ async def produk_tambah(interaction: discord.Interaction, kategori: str, nama: s
         "robux": robux
     })
     save_products()
-    await interaction.response.send_message(f"✅ Produk **{nama}** berhasil ditambahkan ke kategori **{real_category}**.", ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Produk **{nama}** berhasil ditambahkan ke kategori **{real_category}**.",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="produk_edit", description="Edit produk katalog kasir")
@@ -1270,7 +1296,10 @@ async def on_message(message: discord.Message):
                 if path.exists():
                     files.append(discord.File(str(path)))
 
-            await message.channel.send(content=payload.get("text") or None, files=files if files else None)
+            await message.channel.send(
+                content=payload.get("text") or None,
+                files=files if files else None
+            )
             return
 
     await bot.process_commands(message)
