@@ -16,12 +16,14 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 WIB = ZoneInfo("Asia/Jakarta")
 COLOR = 0x00F8FF
 MAX_SLOT = 20
+UNCATEGORIZED_NAME = "Umum"
 
 BASE_DIR = Path("data_store_bot")
 BASE_DIR.mkdir(exist_ok=True)
 
 VIP_FILE = BASE_DIR / "vip_sessions.json"
 PRODUCT_FILE = BASE_DIR / "cashier_products.json"
+CATEGORY_FILE = BASE_DIR / "cashier_categories.json"
 CUSTOM_PRICELIST_FILE = BASE_DIR / "custom_pricelists.json"
 CUSTOM_PRICELIST_DIR = BASE_DIR / "pricelist_media"
 CUSTOM_PRICELIST_DIR.mkdir(exist_ok=True)
@@ -76,11 +78,11 @@ def is_admin(member) -> bool:
 
 
 def normalize_key(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
+    return re.sub(r"\s+", " ", str(text).strip().lower())
 
 
 def normalize_trigger(text: str) -> str:
-    return text.strip().lower().lstrip("!")
+    return str(text).strip().lower().lstrip("!")
 
 
 def calculate_price(robux: int, rate: int) -> int:
@@ -117,36 +119,11 @@ def parse_slot_numbers(text: str) -> list[int]:
     return sorted(result)
 
 
-def product_display_name(product: dict) -> str:
-    category = product.get("category", "Umum")
-    return f"[{category}] {product['name']}"
-
-
-def build_product_choices(current: str):
-    current_key = normalize_key(current)
-    result = []
-    for product in sorted(PRODUCTS, key=lambda x: (normalize_key(x.get("category", "Umum")), normalize_key(x["name"]))):
-        haystack = f"{product.get('category', 'Umum')} {product['name']}"
-        if not current_key or current_key in normalize_key(haystack):
-            result.append(
-                app_commands.Choice(
-                    name=product_display_name(product)[:100],
-                    value=product["name"][:100]
-                )
-            )
-        if len(result) >= 25:
-            break
-    return result
-
-
-async def product_autocomplete(interaction: discord.Interaction, current: str):
-    return build_product_choices(current)
-
-
 # =========================================================
 # STORAGE
 # =========================================================
 PRODUCTS = load_json(PRODUCT_FILE, [])
+CATEGORIES = load_json(CATEGORY_FILE, [])
 CUSTOM_PRICELISTS = load_json(CUSTOM_PRICELIST_FILE, {})
 vip_sessions = load_json(VIP_FILE, {})
 
@@ -188,6 +165,10 @@ def save_products():
     save_json(PRODUCT_FILE, PRODUCTS)
 
 
+def save_categories():
+    save_json(CATEGORY_FILE, CATEGORIES)
+
+
 def save_pricelists():
     save_json(CUSTOM_PRICELIST_FILE, CUSTOM_PRICELISTS)
 
@@ -204,59 +185,136 @@ def get_session(message_id: int | str):
     return vip_sessions[key]
 
 
-def migrate_products():
-    changed = False
-    for product in PRODUCTS:
-        if "id" not in product or not product["id"]:
-            product["id"] = str(uuid.uuid4())
-            changed = True
-        if "category" not in product or not str(product.get("category", "")).strip():
-            product["category"] = "Umum"
-            changed = True
-        if "active" not in product:
-            product["active"] = True
-            changed = True
-    if changed:
-        save_products()
+def get_category_by_id(category_id: str):
+    for category in CATEGORIES:
+        if category.get("id") == category_id:
+            return category
+    return None
 
 
-migrate_products()
+def get_category_by_name(name: str):
+    key = normalize_key(name)
+    for category in CATEGORIES:
+        if normalize_key(category.get("name", "")) == key:
+            return category
+    return None
 
 
-def get_active_products() -> list[dict]:
-    return [p for p in PRODUCTS if p.get("active", True)]
+def get_uncategorized_category():
+    category = get_category_by_name(UNCATEGORIZED_NAME)
+    if category:
+        return category
+
+    category = {
+        "id": str(uuid.uuid4()),
+        "name": UNCATEGORIZED_NAME,
+        "active": True,
+        "protected": True,
+    }
+    CATEGORIES.append(category)
+    save_categories()
+    return category
 
 
-def get_all_categories() -> list[str]:
-    categories = {str(p.get("category", "Umum")).strip() or "Umum" for p in get_active_products()}
-    return sorted(categories, key=normalize_key)
+def get_category_name_by_id(category_id: Optional[str]) -> str:
+    if not category_id:
+        return UNCATEGORIZED_NAME
+    category = get_category_by_id(category_id)
+    return category.get("name", UNCATEGORIZED_NAME) if category else UNCATEGORIZED_NAME
 
 
-def get_products_by_category(category: str, keyword: str = "") -> list[dict]:
-    category_key = normalize_key(category)
+def get_active_categories() -> list[dict]:
+    return sorted(
+        [c for c in CATEGORIES if c.get("active", True)],
+        key=lambda x: normalize_key(x.get("name", ""))
+    )
+
+
+def get_products_by_category_id(category_id: str, keyword: str = "") -> list[dict]:
     keyword_key = normalize_key(keyword)
-    products = []
-    for product in get_active_products():
-        if normalize_key(str(product.get("category", "Umum"))) != category_key:
+    items = []
+    for product in PRODUCTS:
+        if not product.get("active", True):
             continue
-        if keyword_key and keyword_key not in normalize_key(product["name"]):
+        if product.get("category_id") != category_id:
             continue
-        products.append(product)
-    products.sort(key=lambda x: normalize_key(x["name"]))
-    return products
+        if keyword_key and keyword_key not in normalize_key(product.get("name", "")):
+            continue
+        items.append(product)
+    return sorted(items, key=lambda x: normalize_key(x.get("name", "")))
+
+
+def find_product_by_id(product_id: str):
+    for product in PRODUCTS:
+        if product.get("id") == product_id:
+            return product
+    return None
 
 
 def find_product_by_name(name: str):
     key = normalize_key(name)
     for product in PRODUCTS:
-        if normalize_key(product["name"]) == key:
+        if normalize_key(product.get("name", "")) == key:
             return product
     return None
 
 
+def find_product_by_name_and_category(name: str, category_id: str):
+    name_key = normalize_key(name)
+    for product in PRODUCTS:
+        if normalize_key(product.get("name", "")) == name_key and product.get("category_id") == category_id:
+            return product
+    return None
+
+
+def product_display_name(product: dict) -> str:
+    return f"[{get_category_name_by_id(product.get('category_id'))}] {product['name']}"
+
+
+def build_product_choices(current: str):
+    current_key = normalize_key(current)
+    result = []
+    for product in sorted(PRODUCTS, key=lambda x: (normalize_key(get_category_name_by_id(x.get("category_id"))), normalize_key(x.get("name", "")))):
+        haystack = f"{get_category_name_by_id(product.get('category_id'))} {product.get('name', '')}"
+        if not current_key or current_key in normalize_key(haystack):
+            result.append(
+                app_commands.Choice(
+                    name=product_display_name(product)[:100],
+                    value=product.get("name", "")[:100]
+                )
+            )
+        if len(result) >= 25:
+            break
+    return result
+
+
+async def product_autocomplete(interaction: discord.Interaction, current: str):
+    return build_product_choices(current)
+
+
+def build_category_choices(current: str):
+    current_key = normalize_key(current)
+    result = []
+    for category in get_active_categories():
+        if not current_key or current_key in normalize_key(category.get("name", "")):
+            result.append(
+                app_commands.Choice(
+                    name=category.get("name", "")[:100],
+                    value=category.get("name", "")[:100]
+                )
+            )
+        if len(result) >= 25:
+            break
+    return result
+
+
+async def category_autocomplete(interaction: discord.Interaction, current: str):
+    return build_category_choices(current)
+
+
 def add_product_to_cart(session: dict, product: dict) -> bool:
     for item in session["items"]:
-        if item.get("product_id") == product["id"]:
+        if item.get("product_id") == product.get("id"):
             return False
 
     rate = int(session["rate"])
@@ -265,7 +323,7 @@ def add_product_to_cart(session: dict, product: dict) -> bool:
     session["items"].append({
         "product_id": product["id"],
         "name": product["name"],
-        "category": product.get("category", "Umum"),
+        "category_id": product.get("category_id"),
         "robux": robux,
         "price": price,
         "qty": 1,
@@ -278,6 +336,97 @@ def get_cart_item_by_product_id(session: dict, product_id: str):
         if item.get("product_id") == product_id:
             return item
     return None
+
+
+def migrate_categories_and_products():
+    changed_products = False
+    changed_categories = False
+
+    if not isinstance(CATEGORIES, list):
+        CATEGORIES.clear()
+        changed_categories = True
+
+    # normalize categories list
+    seen_category_names = set()
+    normalized_categories = []
+    for category in CATEGORIES:
+        if not isinstance(category, dict):
+            continue
+        name = str(category.get("name", "")).strip() or UNCATEGORIZED_NAME
+        name_key = normalize_key(name)
+        if name_key in seen_category_names:
+            continue
+        seen_category_names.add(name_key)
+        normalized_categories.append({
+            "id": category.get("id") or str(uuid.uuid4()),
+            "name": name,
+            "active": category.get("active", True),
+            "protected": category.get("protected", False) or name_key == normalize_key(UNCATEGORIZED_NAME),
+        })
+
+    if len(normalized_categories) != len(CATEGORIES):
+        changed_categories = True
+    CATEGORIES[:] = normalized_categories
+
+    uncategorized = get_uncategorized_category()
+    uncategorized_id = uncategorized["id"]
+
+    def ensure_category(name: str):
+        nonlocal changed_categories
+        category = get_category_by_name(name)
+        if category:
+            return category
+        category = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "active": True,
+            "protected": normalize_key(name) == normalize_key(UNCATEGORIZED_NAME),
+        }
+        CATEGORIES.append(category)
+        changed_categories = True
+        return category
+
+    for product in PRODUCTS:
+        if not isinstance(product, dict):
+            continue
+        if not product.get("id"):
+            product["id"] = str(uuid.uuid4())
+            changed_products = True
+        if "active" not in product:
+            product["active"] = True
+            changed_products = True
+
+        category_id = product.get("category_id")
+        category_name = str(product.get("category", "")).strip()
+
+        if category_id and not get_category_by_id(category_id):
+            category_id = None
+
+        if not category_id:
+            if category_name:
+                category = ensure_category(category_name)
+                product["category_id"] = category["id"]
+            else:
+                product["category_id"] = uncategorized_id
+            changed_products = True
+
+        if "category" in product:
+            # preserve compatibility, but align name with master category
+            actual_name = get_category_name_by_id(product.get("category_id"))
+            if product.get("category") != actual_name:
+                product["category"] = actual_name
+                changed_products = True
+        else:
+            product["category"] = get_category_name_by_id(product.get("category_id"))
+            changed_products = True
+
+    if changed_categories:
+        save_categories()
+    if changed_products:
+        save_products()
+
+
+migrate_categories_and_products()
 
 
 # =========================================================
@@ -313,9 +462,14 @@ async def adminhelp(interaction: discord.Interaction):
         "`/editslot` - Edit slot VIP\n"
         "`/pay` - Update payment slot VIP\n"
         "`/delete` - Hapus slot VIP\n\n"
+        "**Kategori Kasir:**\n"
+        "`/kategori_tambah` - Tambah kategori\n"
+        "`/kategori_edit` - Edit kategori\n"
+        "`/kategori_hapus` - Hapus kategori dan semua produknya\n"
+        "`/kategori_list` - Lihat daftar kategori\n\n"
         "**Kasir:**\n"
         "`/kasir` - Mulai kasir dengan rate harian\n"
-        "`/produk_tambah` - Tambah produk katalog kasir\n"
+        "`/produk_tambah` - Tambah produk ke kategori\n"
         "`/produk_edit` - Edit produk katalog kasir\n"
         "`/produk_hapus` - Hapus produk katalog kasir\n"
         "`/produk_list` - Lihat katalog produk kasir\n\n"
@@ -392,13 +546,7 @@ class VipSetupModal(Modal):
         self.ps = TextInput(label="PS / Host")
         self.server = TextInput(label="Server (opsional)", required=False)
 
-        for item in (
-            self.waktu,
-            self.durasi_waktu,
-            self.harga,
-            self.ps,
-            self.server
-        ):
+        for item in (self.waktu, self.durasi_waktu, self.harga, self.ps, self.server):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -423,11 +571,7 @@ class JoinModal(Modal):
     def __init__(self, message_id: int):
         super().__init__(title="Ikut VIP")
         self.message_id = message_id
-
-        self.roblox = TextInput(
-            label="Username Roblox",
-            placeholder="Contoh : KennMyst"
-        )
+        self.roblox = TextInput(label="Username Roblox", placeholder="Contoh : KennMyst")
         self.add_item(self.roblox)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -454,27 +598,18 @@ class JoinModal(Modal):
 class DeleteSelect(Select):
     def __init__(self, message_id: int, user_id: int):
         self.message_id = message_id
-
         session = get_session(message_id)
         vip_list = session["list"]
 
         options = []
         for idx, data in enumerate(vip_list, start=1):
             if data["user_id"] == user_id:
-                options.append(
-                    discord.SelectOption(
-                        label=f"{idx}. {data['roblox']}"[:100],
-                        value=data["id"]
-                    )
-                )
+                options.append(discord.SelectOption(label=f"{idx}. {data['roblox']}"[:100], value=data["id"]))
 
         if not options:
             options.append(discord.SelectOption(label="Tidak ada slot", value="none"))
 
-        super().__init__(
-            placeholder="Pilih slot kamu",
-            options=options
-        )
+        super().__init__(placeholder="Pilih slot kamu", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
@@ -518,177 +653,86 @@ class VipView(View):
         if len(get_session(self.message_id)["list"]) >= MAX_SLOT:
             await interaction.response.send_message("Slot sudah penuh.", ephemeral=True)
             return
-
         await interaction.response.send_modal(JoinModal(self.message_id))
 
-    @discord.ui.button(label="- Hapus slot saya", style=discord.ButtonStyle.danger)
-    async def delete(self, interaction: discord.Interaction, button: Button):
-        session = get_session(self.message_id)
-
-        if not any(x["user_id"] == interaction.user.id for x in session["list"]):
-            await interaction.response.send_message("Kamu belum punya slot.", ephemeral=True)
-            return
-
+    @discord.ui.button(label="- Hapus Slot", style=discord.ButtonStyle.danger)
+    async def delete_slot(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_message(
-            "Pilih slot kamu:",
+            "Pilih slot yang ingin dihapus:",
             view=DeleteView(self.message_id, interaction.user.id),
             ephemeral=True
         )
 
-    @discord.ui.button(label="✏️ Atur Info (Admin)", style=discord.ButtonStyle.primary)
-    async def setup(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label="⚙️ Edit Info", style=discord.ButtonStyle.secondary)
+    async def edit_info(self, interaction: discord.Interaction, button: Button):
         if not is_admin(interaction.user):
             await interaction.response.send_message("Hanya admin.", ephemeral=True)
             return
-
         await interaction.response.send_modal(VipSetupModal(self.message_id))
 
-    @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary)
-    async def refresh(self, interaction: discord.Interaction, button: Button):
-        msg = await interaction.channel.fetch_message(self.message_id)
-        await msg.edit(embed=make_vip_embed(self.message_id), view=VipView(self.message_id))
-        await interaction.response.send_message("Direfresh.", ephemeral=True)
 
-
-@bot.command()
+@bot.command(name="vip")
+@commands.has_permissions(administrator=True)
 async def vip(ctx: commands.Context):
-    msg = await ctx.send(embed=discord.Embed(title="Membuat list VIP...", color=COLOR))
-    get_session(msg.id)
+    embed = make_vip_embed("temp")
+    sent = await ctx.send(embed=embed)
+    vip_sessions[str(sent.id)] = {"info": {}, "list": []}
     save_vip_sessions()
-
-    await msg.edit(embed=make_vip_embed(msg.id), view=VipView(msg.id))
-
-    try:
-        await ctx.message.delete()
-    except discord.HTTPException:
-        pass
+    await sent.edit(embed=make_vip_embed(sent.id), view=VipView(sent.id))
 
 
-@bot.tree.command(name="delete", description="Admin: hapus slot VIP")
-@app_commands.describe(message_id="ID pesan VIP", nomor="Nomor slot")
-async def slash_delete(interaction: discord.Interaction, message_id: str, nomor: int):
-    if not is_admin(interaction.user):
-        await interaction.response.send_message("Hanya admin.", ephemeral=True)
-        return
-
-    try:
-        mid = int(message_id)
-    except ValueError:
-        await interaction.response.send_message("Message ID tidak valid.", ephemeral=True)
-        return
-
-    session = vip_sessions.get(str(mid))
-    if not session:
-        await interaction.response.send_message("List tidak ditemukan.", ephemeral=True)
-        return
-
-    vip_list = session["list"]
-    index = nomor - 1
-
-    if index < 0 or index >= len(vip_list):
-        await interaction.response.send_message("Nomor slot tidak valid.", ephemeral=True)
-        return
-
-    vip_list.pop(index)
-    save_vip_sessions()
-
-    msg = await interaction.channel.fetch_message(mid)
-    await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
-
-    await interaction.response.send_message("Slot berhasil dihapus.", ephemeral=True)
-
-
-@bot.tree.command(name="editslot", description="Admin: edit slot VIP")
-@app_commands.describe(
-    message_id="ID pesan VIP",
-    nomor="Nomor slot",
-    roblox="Username Roblox",
-    member="User Discord"
-)
-async def slash_edit(
+@bot.tree.command(name="editslot", description="Edit slot VIP tertentu")
+@app_commands.describe(message_id="ID pesan VIP", nomor="Nomor slot", roblox="Username Roblox baru", member="Member baru")
+async def editslot(
     interaction: discord.Interaction,
     message_id: str,
     nomor: int,
-    roblox: str,
-    member: discord.Member
+    roblox: Optional[str] = None,
+    member: Optional[discord.Member] = None
 ):
     if not is_admin(interaction.user):
-        await interaction.response.send_message("Hanya admin.", ephemeral=True)
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
-    try:
-        mid = int(message_id)
-    except ValueError:
-        await interaction.response.send_message("Message ID tidak valid.", ephemeral=True)
-        return
-
-    session = vip_sessions.get(str(mid))
-    if not session:
-        await interaction.response.send_message("List tidak ditemukan.", ephemeral=True)
-        return
-
+    session = get_session(message_id)
     vip_list = session["list"]
 
-    if nomor < 1 or nomor > MAX_SLOT:
+    if nomor < 1 or nomor > len(vip_list):
         await interaction.response.send_message("Nomor slot tidak valid.", ephemeral=True)
         return
 
-    index = nomor - 1
+    data = vip_list[nomor - 1]
+    if roblox:
+        data["roblox"] = roblox.strip()
+    if member:
+        data["user_id"] = member.id
+        data["mention"] = member.mention
 
-    while len(vip_list) <= index:
-        vip_list.append({
-            "id": str(uuid.uuid4()),
-            "user_id": 0,
-            "mention": "-",
-            "roblox": "-",
-            "paid": False
-        })
-
-    vip_list[index] = {
-        "id": str(uuid.uuid4()),
-        "user_id": member.id,
-        "mention": member.mention,
-        "roblox": roblox.strip(),
-        "paid": False
-    }
     save_vip_sessions()
 
-    msg = await interaction.channel.fetch_message(mid)
-    await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
+    msg = await interaction.channel.fetch_message(int(message_id))
+    await msg.edit(embed=make_vip_embed(message_id), view=VipView(int(message_id)))
+    await interaction.response.send_message("✅ Slot berhasil diperbarui.", ephemeral=True)
 
-    await interaction.response.send_message("Slot berhasil diedit.", ephemeral=True)
 
-
-@bot.tree.command(name="pay", description="Admin: update payment slot VIP")
-@app_commands.describe(
-    message_id="ID pesan VIP",
-    slots="Contoh: 1,2,10 atau 1-5",
-    status="Status pembayaran"
-)
+@bot.tree.command(name="pay", description="Ubah status pembayaran slot VIP")
+@app_commands.describe(message_id="ID pesan VIP", slots="Contoh: 1,2,3 atau 1-5", status="paid / unpaid")
 @app_commands.choices(status=[
     app_commands.Choice(name="paid", value="paid"),
     app_commands.Choice(name="unpaid", value="unpaid")
 ])
-async def slash_paid(
+async def pay(
     interaction: discord.Interaction,
     message_id: str,
     slots: str,
     status: app_commands.Choice[str]
 ):
     if not is_admin(interaction.user):
-        await interaction.response.send_message("Hanya admin.", ephemeral=True)
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
-    try:
-        mid = int(message_id)
-    except ValueError:
-        await interaction.response.send_message("Message ID tidak valid.", ephemeral=True)
-        return
-
-    session = vip_sessions.get(str(mid))
-    if not session:
-        await interaction.response.send_message("List tidak ditemukan.", ephemeral=True)
-        return
+    session = get_session(message_id)
+    vip_list = session["list"]
 
     try:
         numbers = parse_slot_numbers(slots)
@@ -696,758 +740,759 @@ async def slash_paid(
         await interaction.response.send_message(f"Format slot salah: {e}", ephemeral=True)
         return
 
-    vip_list = session["list"]
-    updated = []
-    not_found = []
-
-    for n in numbers:
-        idx = n - 1
-        if 0 <= idx < len(vip_list):
-            vip_list[idx]["paid"] = status.value == "paid"
-            updated.append(str(n))
-        else:
-            not_found.append(str(n))
+    changed = 0
+    for num in numbers:
+        if 1 <= num <= len(vip_list):
+            vip_list[num - 1]["paid"] = status.value == "paid"
+            changed += 1
 
     save_vip_sessions()
 
-    msg = await interaction.channel.fetch_message(mid)
-    await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
+    msg = await interaction.channel.fetch_message(int(message_id))
+    await msg.edit(embed=make_vip_embed(message_id), view=VipView(int(message_id)))
+    await interaction.response.send_message(f"✅ Status payment diperbarui untuk {changed} slot.", ephemeral=True)
 
-    lines = []
-    if updated:
-        lines.append(f"✅ Slot diupdate: {', '.join(updated)} → {status.value}")
-    if not_found:
-        lines.append(f"⚠️ Slot tidak ditemukan: {', '.join(not_found)}")
 
-    await interaction.response.send_message("\n".join(lines) if lines else "Tidak ada slot yang diubah.", ephemeral=True)
+@bot.tree.command(name="delete", description="Hapus slot VIP tertentu")
+@app_commands.describe(message_id="ID pesan VIP", nomor="Nomor slot yang ingin dihapus")
+async def delete(interaction: discord.Interaction, message_id: str, nomor: int):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
+        return
+
+    session = get_session(message_id)
+    vip_list = session["list"]
+
+    if nomor < 1 or nomor > len(vip_list):
+        await interaction.response.send_message("Nomor slot tidak valid.", ephemeral=True)
+        return
+
+    vip_list.pop(nomor - 1)
+    save_vip_sessions()
+
+    msg = await interaction.channel.fetch_message(int(message_id))
+    await msg.edit(embed=make_vip_embed(message_id), view=VipView(int(message_id)))
+    await interaction.response.send_message("✅ Slot berhasil dihapus.", ephemeral=True)
 
 
 # =========================================================
 # BUYER PRICELIST
 # =========================================================
-class GameView(View):
+def get_buyer_file(game_key: str, item_key: str) -> Path:
+    return BUYER_PRICELIST_DIR / f"{game_key}_{item_key}.png"
+
+
+class BuyerGameSelect(Select):
     def __init__(self):
-        super().__init__(timeout=60)
         options = [discord.SelectOption(label=data["name"], value=key) for key, data in BUYER_DATA.items()]
-        self.add_item(GameSelect(options))
-
-
-class GameSelect(Select):
-    def __init__(self, options):
-        super().__init__(placeholder="Pilih game", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="Pilih game", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         game_key = self.values[0]
-        await interaction.response.edit_message(content="Pilih produk:", view=ItemView(game_key))
+        await interaction.response.send_message(
+            f"Pilih jenis item untuk **{BUYER_DATA[game_key]['name']}**:",
+            view=BuyerItemView(game_key),
+            ephemeral=True
+        )
 
 
-class ItemView(View):
+class BuyerGameView(View):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.add_item(BuyerGameSelect())
+
+
+class BuyerItemSelect(Select):
     def __init__(self, game_key: str):
-        super().__init__(timeout=60)
-        options = []
-        for item_key, item_name in BUYER_DATA[game_key]["items"].items():
-            options.append(discord.SelectOption(label=item_name, value=f"{game_key}|{item_key}"))
-        self.add_item(ItemSelect(options))
-
-
-class ItemSelect(Select):
-    def __init__(self, options):
-        super().__init__(placeholder="Pilih pricelist", min_values=1, max_values=1, options=options)
+        self.game_key = game_key
+        options = [discord.SelectOption(label=name, value=item_key) for item_key, name in BUYER_DATA[game_key]["items"].items()]
+        super().__init__(placeholder="Pilih item", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        game_key, item_key = self.values[0].split("|")
-        folder = BUYER_PRICELIST_DIR / "game" / game_key / item_key
+        item_key = self.values[0]
+        filepath = get_buyer_file(self.game_key, item_key)
 
-        if not folder.exists():
-            await interaction.response.send_message("❌ Pricelist belum tersedia.", ephemeral=True)
+        if not filepath.exists():
+            await interaction.response.send_message("Pricelist untuk item itu belum diupload admin.", ephemeral=True)
             return
 
-        files = []
-        for name in sorted(folder.iterdir()):
-            if name.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
-                files.append(discord.File(str(name)))
-
-        if not files:
-            await interaction.response.send_message("❌ Pricelist belum tersedia.", ephemeral=True)
-            return
-
-        await interaction.response.send_message(files=files, ephemeral=True)
+        await interaction.response.send_message(
+            content=f"Berikut pricelist **{BUYER_DATA[self.game_key]['name']} - {BUYER_DATA[self.game_key]['items'][item_key]}**",
+            file=discord.File(str(filepath)),
+            ephemeral=True
+        )
 
 
-@bot.tree.command(name="cekpricelist", description="Cek pricelist game")
+class BuyerItemView(View):
+    def __init__(self, game_key: str):
+        super().__init__(timeout=120)
+        self.add_item(BuyerItemSelect(game_key))
+
+
+@bot.tree.command(name="cekpricelist", description="Cek pricelist game/customer")
 async def cekpricelist(interaction: discord.Interaction):
-    await interaction.response.send_message("Pilih game:", view=GameView(), ephemeral=True)
+    await interaction.response.send_message("Pilih game untuk melihat pricelist:", view=BuyerGameView(), ephemeral=True)
 
 
-@bot.tree.command(name="update_pricelist", description="Update pricelist buyer (admin)")
-@app_commands.describe(
-    game="Pilih game",
-    produk="Pilih produk",
-    image1="Gambar 1",
-    image2="Gambar 2 (opsional)",
-    image3="Gambar 3 (opsional)",
-    image4="Gambar 4 (opsional)"
-)
-@app_commands.choices(
-    game=[
-        app_commands.Choice(name="Fish It", value="fishit"),
-        app_commands.Choice(name="Fisch", value="fisch"),
-        app_commands.Choice(name="The Forge", value="theforge"),
-        app_commands.Choice(name="Abbys", value="abbys"),
-    ],
-    produk=[
-        app_commands.Choice(name="Fish It - Gamepass", value="fishit|gamepass"),
-        app_commands.Choice(name="Fish It - Boost X8", value="fishit|boostx8"),
-        app_commands.Choice(name="Fish It - Skin Crates", value="fishit|skincrates"),
-        app_commands.Choice(name="Fish It - Emote Crates", value="fishit|emotecrates"),
-        app_commands.Choice(name="Fisch - Gamepass", value="fisch|gamepass"),
-        app_commands.Choice(name="Fisch - Limited Item", value="fisch|limited"),
-        app_commands.Choice(name="The Forge - Gamepass", value="theforge|gamepass"),
-        app_commands.Choice(name="The Forge - Reroll", value="theforge|reroll"),
-        app_commands.Choice(name="Abbys - Gamepass", value="abbys|gamepass"),
-        app_commands.Choice(name="Abbys - Shard", value="abbys|shard"),
-    ]
-)
+@bot.tree.command(name="update_pricelist", description="Upload/update gambar pricelist buyer")
+@app_commands.describe(game="Game target", item="Jenis item", gambar="File gambar pricelist")
+@app_commands.choices(game=[app_commands.Choice(name=data["name"], value=key) for key, data in BUYER_DATA.items()])
 async def update_pricelist(
     interaction: discord.Interaction,
     game: app_commands.Choice[str],
-    produk: app_commands.Choice[str],
-    image1: discord.Attachment,
-    image2: Optional[discord.Attachment] = None,
-    image3: Optional[discord.Attachment] = None,
-    image4: Optional[discord.Attachment] = None
+    item: str,
+    gambar: discord.Attachment
 ):
-    await interaction.response.defer(ephemeral=True)
-
     if not is_admin(interaction.user):
-        await interaction.followup.send("❌ Hanya admin yang bisa update.", ephemeral=True)
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
-    game_key, item_key = produk.value.split("|")
-    folder = BUYER_PRICELIST_DIR / "game" / game_key / item_key
-    folder.mkdir(parents=True, exist_ok=True)
+    game_key = game.value
+    item_key = normalize_key(item).replace(" ", "")
 
-    for f in folder.iterdir():
-        if f.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
-            f.unlink(missing_ok=True)
+    if item_key not in BUYER_DATA[game_key]["items"]:
+        valid_items = ", ".join(BUYER_DATA[game_key]["items"].values())
+        await interaction.response.send_message(f"Item tidak valid. Gunakan salah satu: {valid_items}", ephemeral=True)
+        return
 
-    images = [image1, image2, image3, image4]
-    index = 1
-    for img in images:
-        if img is not None:
-            ext = Path(img.filename).suffix.lower() or ".png"
-            if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
-                ext = ".png"
-            await img.save(folder / f"{index}{ext}")
-            index += 1
+    ext = Path(gambar.filename).suffix.lower() or ".png"
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        ext = ".png"
 
-    await interaction.followup.send("✅ Pricelist buyer berhasil diperbarui.", ephemeral=True)
+    filepath = BUYER_PRICELIST_DIR / f"{game_key}_{item_key}{ext}"
+    for old in BUYER_PRICELIST_DIR.glob(f"{game_key}_{item_key}.*"):
+        old.unlink(missing_ok=True)
+
+    await gambar.save(filepath)
+    await interaction.response.send_message(
+        f"✅ Pricelist **{BUYER_DATA[game_key]['name']} - {BUYER_DATA[game_key]['items'][item_key]}** berhasil diupdate.",
+        ephemeral=True
+    )
 
 
 # =========================================================
-# KASIR
+# KASIR SYSTEM
 # =========================================================
-def build_kasir_preview_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(title="Preview Kasir", color=COLOR)
-    embed.add_field(name="Customer", value=session["customer"], inline=False)
-    embed.add_field(name="Rate Hari Ini", value=str(session["rate"]), inline=False)
-    embed.add_field(name="Tanggal", value=format_wib(), inline=False)
+def build_kasir_preview_embed(session_id: str) -> discord.Embed:
+    session = kasir_sessions[session_id]
+    total = 0
 
-    mode = session.get("ui_mode", "preview")
-    category = session.get("selected_category") or "-"
-    keyword = session.get("search_keyword") or "-"
+    lines = [
+        f"**Customer:** {session['customer']}",
+        f"**Rate:** {session['rate']}",
+        f"**Tanggal:** {format_wib()}",
+        "",
+        "**Daftar Pembelian:**"
+    ]
 
-    if session["items"]:
-        lines = []
-        total = 0
+    if not session["items"]:
+        lines.append("_Belum ada item dipilih._")
+    else:
         for i, item in enumerate(session["items"], start=1):
-            qty_text = f" x{item['qty']}" if item["qty"] > 1 else ""
             subtotal = item["price"] * item["qty"]
             total += subtotal
-            category_text = item.get("category", "Umum")
-            lines.append(f"{i}. [{category_text}] {item['name']} ({item['robux']}){qty_text} : {format_rupiah(subtotal)}")
-        embed.add_field(name="List Pembelian", value="\n".join(lines), inline=False)
-        embed.add_field(name="TOTAL", value=f"**{format_rupiah(total)}**", inline=False)
-    else:
-        embed.add_field(name="List Pembelian", value="Belum ada item.", inline=False)
+            qty_suffix = f" x{item['qty']}" if item["qty"] > 1 else ""
+            category_name = get_category_name_by_id(item.get("category_id"))
+            lines.append(
+                f"{i}. [{category_name}] {item['name']} ({item['robux']} Robux){qty_suffix} = {format_rupiah(subtotal)}"
+            )
 
-    if mode == "category":
-        embed.add_field(
-            name="Mode Pilih Kategori",
-            value="Pilih kategori dulu. Setelah itu kamu bisa pilih banyak produk sekaligus.",
-            inline=False
-        )
-    elif mode == "product":
-        extra = [f"Kategori aktif: **{category}**"]
-        if session.get("search_keyword"):
-            extra.append(f"Filter nama: **{keyword}**")
-        filtered = get_products_by_category(session.get("selected_category", ""), session.get("search_keyword", ""))
-        if len(filtered) > 25:
-            extra.append(f"Hasil cocok: **{len(filtered)}** produk. Yang tampil hanya 25 pertama, gunakan search agar lebih spesifik.")
-        elif filtered:
-            extra.append(f"Hasil cocok: **{len(filtered)}** produk.")
-        else:
-            extra.append("Tidak ada produk yang cocok. Coba search lain atau back ke kategori.")
-        embed.add_field(name="Mode Pilih Produk", value="\n".join(extra), inline=False)
-    elif mode == "edit_qty":
-        embed.add_field(name="Mode Edit Qty", value="Pilih item dari daftar di bawah lalu isi jumlah baru. Semua item default qty = 1.", inline=False)
-    elif mode == "remove_item":
-        embed.add_field(name="Mode Hapus Item", value="Pilih item yang ingin dihapus dari keranjang.", inline=False)
+    lines.append("")
+    lines.append(f"**Total:** {format_rupiah(total)}")
 
-    embed.set_footer(text="Semua proses kasir hanya terlihat admin sampai invoice dikirim")
+    embed = discord.Embed(title="Preview Kasir", description="\n".join(lines), color=COLOR)
+    embed.set_footer(text="Pilih produk, ubah qty bila perlu, lalu tekan Selesai")
     return embed
 
 
-def build_kasir_invoice_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(title="Fraktur Online", color=COLOR)
-    embed.add_field(name="Customer", value=session["customer"], inline=False)
-    embed.add_field(name="Rate Hari Ini", value=str(session["rate"]), inline=False)
-    embed.add_field(name="Tanggal", value=format_wib(), inline=False)
+def build_invoice_text(session: dict) -> str:
+    lines = [
+        "⏤͟͟͞͞★      𝐌𝐘𝐒𝐓 𝐒𝐓𝐎𝐑𝐄      ★⏤͟͟͞͞",
+        "",
+        f"✦ **Tanggal:** {format_wib()}",
+        f"✦ **Customer:** {session['customer']}",
+        f"✦ **Rate:** {session['rate']}",
+        "",
+        "**— Daftar Pembelian —**"
+    ]
 
-    lines = []
     total = 0
     for i, item in enumerate(session["items"], start=1):
-        qty_text = f" x{item['qty']}" if item["qty"] > 1 else ""
         subtotal = item["price"] * item["qty"]
         total += subtotal
-        category_text = item.get("category", "Umum")
-        lines.append(f"{i}. [{category_text}] {item['name']} ({item['robux']}){qty_text} : {format_rupiah(subtotal)}")
-
-    embed.add_field(name="**List Pembelian**", value="\n".join(lines), inline=False)
-    embed.add_field(name="**TOTAL**", value=f"**{format_rupiah(total)}**", inline=False)
-    embed.timestamp = now_wib()
-    return embed
-
-
-def build_kasir_view(session_id: str) -> View:
-    session = kasir_sessions.get(session_id)
-    if not session:
-        return View()
-
-    mode = session.get("ui_mode", "preview")
-    if mode == "category":
-        return KasirCategoryView(session_id)
-    if mode == "product":
-        return KasirProductView(session_id)
-    if mode == "edit_qty":
-        return EditQtyView(session_id)
-    if mode == "remove_item":
-        return RemoveItemView(session_id)
-    return KasirView(session_id)
-
-
-class ProductSearchModal(Modal):
-    def __init__(self, session_id: str):
-        super().__init__(title="Cari Produk")
-        self.session_id = session_id
-        session = kasir_sessions.get(session_id, {})
-        self.keyword = TextInput(
-            label="Nama produk",
-            placeholder="Ketik sebagian nama produk",
-            default=session.get("search_keyword", ""),
-            required=False,
-        )
-        self.add_item(self.keyword)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["search_keyword"] = self.keyword.value.strip()
-        session["ui_mode"] = "product"
-        await interaction.response.edit_message(
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
+        qty_suffix = f" x{item['qty']}" if item["qty"] > 1 else ""
+        category_name = get_category_name_by_id(item.get("category_id"))
+        lines.append(
+            f"{i}. [{category_name}] {item['name']} ({item['robux']} Robux){qty_suffix} = {format_rupiah(subtotal)}"
         )
 
-
-class EditQtyModal(Modal):
-    def __init__(self, session_id: str, product_id: str):
-        session = kasir_sessions.get(session_id, {})
-        item = get_cart_item_by_product_id(session, product_id)
-        title = f"Edit Qty {item['name'][:30]}" if item else "Edit Qty"
-        super().__init__(title=title)
-        self.session_id = session_id
-        self.product_id = product_id
-        default_qty = str(item.get("qty", 1)) if item else "1"
-        self.qty = TextInput(label="Jumlah item", placeholder="Contoh: 2", default=default_qty)
-        self.add_item(self.qty)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        item = get_cart_item_by_product_id(session, self.product_id)
-        if not item:
-            await interaction.response.send_message("Item tidak ditemukan di keranjang.", ephemeral=True)
-            return
-
-        try:
-            qty = int(self.qty.value)
-            if qty <= 0:
-                raise ValueError
-        except ValueError:
-            await interaction.response.send_message("Jumlah harus angka lebih dari 0.", ephemeral=True)
-            return
-
-        item["qty"] = qty
-        session["ui_mode"] = "preview"
-        await interaction.response.edit_message(
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class KasirCategorySelect(Select):
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        categories = get_all_categories()
-        options = [
-            discord.SelectOption(label=category[:100], value=category[:100])
-            for category in categories[:25]
-        ]
-
-        if not options:
-            options.append(discord.SelectOption(label="Belum ada kategori", value="none"))
-
-        super().__init__(
-            placeholder="Pilih kategori",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if self.values[0] == "none":
-            await interaction.response.send_message("Belum ada kategori produk.", ephemeral=True)
-            return
-
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["selected_category"] = self.values[0]
-        session["search_keyword"] = ""
-        session["ui_mode"] = "product"
-        await interaction.response.edit_message(
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class KasirCategoryView(View):
-    def __init__(self, session_id: str):
-        super().__init__(timeout=600)
-        self.session_id = session_id
-        self.add_item(KasirCategorySelect(session_id))
-
-    @discord.ui.button(label="Kembali ke Preview", style=discord.ButtonStyle.secondary)
-    async def back_preview(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "preview"
-        await interaction.response.edit_message(
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class KasirProductMultiSelect(Select):
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        session = kasir_sessions.get(session_id) or {}
-        category = session.get("selected_category", "")
-        keyword = session.get("search_keyword", "")
-        rate = int(session.get("rate", 0))
-        products = get_products_by_category(category, keyword)
-
-        options = []
-        for product in products[:25]:
-            preview_price = calculate_price(int(product["robux"]), rate)
-            options.append(
-                discord.SelectOption(
-                    label=product["name"][:100],
-                    description=f"{product['robux']} robux | {format_rupiah(preview_price)}"[:100],
-                    value=product["id"]
-                )
-            )
-
-        if not options:
-            options.append(discord.SelectOption(label="Tidak ada produk", value="none"))
-            min_values = 1
-            max_values = 1
-        else:
-            min_values = 1
-            max_values = min(25, len(options))
-
-        super().__init__(
-            placeholder="Pilih satu atau lebih produk",
-            min_values=min_values,
-            max_values=max_values,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        if self.values[0] == "none":
-            await interaction.response.send_message("Tidak ada produk yang bisa dipilih.", ephemeral=True)
-            return
-
-        added_count = 0
-        duplicate_count = 0
-        for product_id in self.values:
-            product = next((p for p in PRODUCTS if p["id"] == product_id and p.get("active", True)), None)
-            if not product:
-                continue
-            if add_product_to_cart(session, product):
-                added_count += 1
-            else:
-                duplicate_count += 1
-
-        session["ui_mode"] = "product"
-
-        message = []
-        if added_count:
-            message.append(f"✅ {added_count} produk ditambahkan ke keranjang.")
-        if duplicate_count:
-            message.append(f"ℹ️ {duplicate_count} produk sudah ada di keranjang, jadi tidak didobel.")
-        if not message:
-            message.append("Tidak ada produk baru yang ditambahkan.")
-
-        await interaction.response.edit_message(
-            content="\n".join(message),
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class KasirProductView(View):
-    def __init__(self, session_id: str):
-        super().__init__(timeout=600)
-        self.session_id = session_id
-        self.add_item(KasirProductMultiSelect(session_id))
-
-    @discord.ui.button(label="Cari Produk", style=discord.ButtonStyle.success)
-    async def search(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-        if not session.get("selected_category"):
-            await interaction.response.send_message("Pilih kategori dulu.", ephemeral=True)
-            return
-
-        await interaction.response.send_modal(ProductSearchModal(self.session_id))
-
-    @discord.ui.button(label="Reset Search", style=discord.ButtonStyle.primary)
-    async def reset_search(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["search_keyword"] = ""
-        session["ui_mode"] = "product"
-        await interaction.response.edit_message(
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-    @discord.ui.button(label="Back ke Kategori", style=discord.ButtonStyle.secondary)
-    async def back_category(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "category"
-        session["search_keyword"] = ""
-        await interaction.response.edit_message(
-            content=None,
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-    @discord.ui.button(label="Selesai Pilih Produk", style=discord.ButtonStyle.success)
-    async def finish_pick(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "preview"
-        await interaction.response.edit_message(
-            content="✅ Pemilihan produk selesai. Semua item default qty = 1, silakan edit jika perlu.",
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class EditQtySelect(Select):
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        session = kasir_sessions.get(session_id) or {}
-        options = []
-        for item in session.get("items", [])[:25]:
-            options.append(
-                discord.SelectOption(
-                    label=item["name"][:100],
-                    description=f"{item.get('category', 'Umum')} | qty saat ini: {item['qty']}"[:100],
-                    value=item["product_id"]
-                )
-            )
-
-        if not options:
-            options.append(discord.SelectOption(label="Belum ada item", value="none"))
-
-        super().__init__(placeholder="Pilih item untuk edit qty", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        if self.values[0] == "none":
-            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
-            return
-
-        await interaction.response.send_modal(EditQtyModal(self.session_id, self.values[0]))
-
-
-class EditQtyView(View):
-    def __init__(self, session_id: str):
-        super().__init__(timeout=600)
-        self.session_id = session_id
-        self.add_item(EditQtySelect(session_id))
-
-    @discord.ui.button(label="Kembali ke Preview", style=discord.ButtonStyle.secondary)
-    async def back_preview(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "preview"
-        await interaction.response.edit_message(
-            content=None,
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class RemoveItemSelect(Select):
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        session = kasir_sessions.get(session_id) or {}
-        options = []
-        for item in session.get("items", [])[:25]:
-            options.append(
-                discord.SelectOption(
-                    label=item["name"][:100],
-                    description=f"{item.get('category', 'Umum')} | qty: {item['qty']}"[:100],
-                    value=item["product_id"]
-                )
-            )
-
-        if not options:
-            options.append(discord.SelectOption(label="Belum ada item", value="none"))
-
-        super().__init__(placeholder="Pilih item yang ingin dihapus", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        if self.values[0] == "none":
-            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
-            return
-
-        product_id = self.values[0]
-        before = len(session["items"])
-        session["items"] = [item for item in session["items"] if item.get("product_id") != product_id]
-        after = len(session["items"])
-        session["ui_mode"] = "preview"
-
-        if before == after:
-            await interaction.response.send_message("Item tidak ditemukan.", ephemeral=True)
-            return
-
-        await interaction.response.edit_message(
-            content="🗑️ Item berhasil dihapus dari keranjang.",
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class RemoveItemView(View):
-    def __init__(self, session_id: str):
-        super().__init__(timeout=600)
-        self.session_id = session_id
-        self.add_item(RemoveItemSelect(session_id))
-
-    @discord.ui.button(label="Kembali ke Preview", style=discord.ButtonStyle.secondary)
-    async def back_preview(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "preview"
-        await interaction.response.edit_message(
-            content=None,
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-
-class KasirView(View):
-    def __init__(self, session_id: str):
-        super().__init__(timeout=600)
-        self.session_id = session_id
-
-    @discord.ui.button(label="Tambah Produk", style=discord.ButtonStyle.success)
-    async def add_product(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        if not get_active_products():
-            await interaction.response.send_message("Belum ada katalog produk aktif. Gunakan /produk_tambah dulu.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "category"
-        await interaction.response.edit_message(
-            content=None,
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-    @discord.ui.button(label="Edit Qty", style=discord.ButtonStyle.primary)
-    async def edit_qty(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session or not session["items"]:
-            await interaction.response.send_message("Belum ada item untuk diedit.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "edit_qty"
-        await interaction.response.edit_message(
-            content=None,
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-    @discord.ui.button(label="Hapus Item", style=discord.ButtonStyle.danger)
-    async def remove_item(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session or not session["items"]:
-            await interaction.response.send_message("Belum ada item untuk dihapus.", ephemeral=True)
-            return
-
-        session["ui_mode"] = "remove_item"
-        await interaction.response.edit_message(
-            content=None,
-            embed=build_kasir_preview_embed(session),
-            view=build_kasir_view(self.session_id)
-        )
-
-    @discord.ui.button(label="Selesai / Kirim Invoice", style=discord.ButtonStyle.success)
-    async def finish(self, interaction: discord.Interaction, button: Button):
-        session = kasir_sessions.get(self.session_id)
-        if not session:
-            await interaction.response.send_message("Sesi kasir sudah berakhir.", ephemeral=True)
-            return
-
-        if not session["items"]:
-            await interaction.response.send_message("Belum ada item yang dipilih.", ephemeral=True)
-            return
-
-        await interaction.channel.send(embed=build_kasir_invoice_embed(session))
-        kasir_sessions.pop(self.session_id, None)
-        await interaction.response.edit_message(content="✅ Invoice berhasil dikirim ke chat.", embed=None, view=None)
-
-    @discord.ui.button(label="Batal", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: Button):
-        kasir_sessions.pop(self.session_id, None)
-        await interaction.response.edit_message(content="❌ Sesi kasir dibatalkan.", embed=None, view=None)
-
-
-class StartKasirModal(Modal):
+    lines.extend([
+        "",
+        f"**TOTAL : {format_rupiah(total)}**",
+        "",
+        "Terima kasih telah berbelanja di **Myst Store** ✨"
+    ])
+    return "\n".join(lines)
+
+
+class KasirStartModal(Modal):
     def __init__(self):
         super().__init__(title="Mulai Kasir")
-        self.customer = TextInput(label="Nama Customer", placeholder="Contoh: ABC")
+        self.customer = TextInput(label="Nama Customer", placeholder="Contoh: KennMyst")
         self.rate = TextInput(label="Rate hari ini", placeholder="Contoh: 90")
         self.add_item(self.customer)
         self.add_item(self.rate)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_admin(interaction.user):
-            await interaction.response.send_message("❌ Hanya admin yang bisa memakai kasir.", ephemeral=True)
-            return
-
-        if not get_active_products():
-            await interaction.response.send_message("Belum ada katalog produk aktif. Tambahkan dulu dengan /produk_tambah", ephemeral=True)
+            await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
             return
 
         try:
-            rate = int(self.rate.value)
+            rate = int(self.rate.value.strip())
             if rate <= 0:
                 raise ValueError
-        except ValueError:
-            await interaction.response.send_message("❌ Rate harus berupa angka lebih dari 0.", ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("Rate harus berupa angka lebih dari 0.", ephemeral=True)
+            return
+
+        if not get_active_categories():
+            await interaction.response.send_message("Belum ada kategori aktif. Buat dulu dengan /kategori_tambah.", ephemeral=True)
             return
 
         session_id = str(uuid.uuid4())
         kasir_sessions[session_id] = {
-            "customer": self.customer.value.strip() or "Customer",
+            "customer": self.customer.value.strip(),
             "rate": rate,
             "items": [],
-            "ui_mode": "preview",
-            "selected_category": None,
+            "selected_category_id": None,
             "search_keyword": "",
         }
 
         await interaction.response.send_message(
-            embed=build_kasir_preview_embed(kasir_sessions[session_id]),
-            view=build_kasir_view(session_id),
+            embed=build_kasir_preview_embed(session_id),
+            view=KasirView(session_id),
             ephemeral=True
         )
 
 
-@bot.tree.command(name="kasir", description="Mulai sesi kasir dan isi rate harian")
+class ProductSearchModal(Modal):
+    def __init__(self, session_id: str):
+        super().__init__(title="Cari Produk")
+        self.session_id = session_id
+        session = kasir_sessions[self.session_id]
+        self.keyword = TextInput(
+            label="Nama produk",
+            placeholder="Ketik sebagian nama produk",
+            required=False,
+            default=session.get("search_keyword", "")
+        )
+        self.add_item(self.keyword)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        category_id = session.get("selected_category_id")
+        category = get_category_by_id(category_id) if category_id else None
+        if not category:
+            await interaction.response.send_message("Pilih kategori dulu.", ephemeral=True)
+            return
+
+        session["search_keyword"] = self.keyword.value.strip()
+        await interaction.response.send_message(
+            f"Hasil pencarian kategori **{category['name']}**:",
+            view=KasirProductView(self.session_id),
+            ephemeral=True
+        )
+
+
+class EditQtyModal(Modal):
+    def __init__(self, session_id: str, product_id: str):
+        super().__init__(title="Edit Jumlah Item")
+        self.session_id = session_id
+        self.product_id = product_id
+        session = kasir_sessions[self.session_id]
+        item = get_cart_item_by_product_id(session, self.product_id)
+        current_qty = str(item["qty"]) if item else "1"
+        self.qty = TextInput(label="Jumlah item", placeholder="Contoh: 2", default=current_qty)
+        self.add_item(self.qty)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        item = get_cart_item_by_product_id(session, self.product_id)
+        if not item:
+            await interaction.response.send_message("Item tidak ditemukan.", ephemeral=True)
+            return
+
+        try:
+            qty = int(self.qty.value.strip())
+            if qty <= 0:
+                raise ValueError
+        except Exception:
+            await interaction.response.send_message("Jumlah harus angka lebih dari 0.", ephemeral=True)
+            return
+
+        item["qty"] = qty
+        await interaction.response.send_message(
+            "✅ Qty berhasil diperbarui.",
+            embed=build_kasir_preview_embed(self.session_id),
+            view=KasirView(self.session_id),
+            ephemeral=True
+        )
+
+
+class KasirCategorySelect(Select):
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        categories = get_active_categories()
+
+        if not categories:
+            options = [discord.SelectOption(label="Belum ada kategori", value="none")]
+        else:
+            options = [
+                discord.SelectOption(label=category["name"][:100], value=category["id"])
+                for category in categories[:25]
+            ]
+
+        super().__init__(placeholder="Pilih kategori", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("Belum ada kategori aktif.", ephemeral=True)
+            return
+
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        category = get_category_by_id(self.values[0])
+        if not category or not category.get("active", True):
+            await interaction.response.send_message("Kategori tidak ditemukan atau nonaktif.", ephemeral=True)
+            return
+
+        session["selected_category_id"] = category["id"]
+        session["search_keyword"] = ""
+
+        await interaction.response.send_message(
+            f"Pilih produk dari kategori **{category['name']}**:",
+            view=KasirProductView(self.session_id),
+            ephemeral=True
+        )
+
+
+class KasirCategoryView(View):
+    def __init__(self, session_id: str):
+        super().__init__(timeout=180)
+        self.session_id = session_id
+        self.add_item(KasirCategorySelect(session_id))
+
+    @discord.ui.button(label="Lihat Keranjang", style=discord.ButtonStyle.secondary)
+    async def lihat_keranjang(self, interaction: discord.Interaction, button: Button):
+        if self.session_id not in kasir_sessions:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            embed=build_kasir_preview_embed(self.session_id),
+            view=KasirView(self.session_id),
+            ephemeral=True
+        )
+
+
+class KasirProductMultiSelect(Select):
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        session = kasir_sessions[self.session_id]
+        category_id = session.get("selected_category_id")
+        keyword = session.get("search_keyword", "")
+        products = get_products_by_category_id(category_id, keyword) if category_id else []
+
+        if not products:
+            options = [discord.SelectOption(label="Produk tidak ditemukan", value="none")]
+            max_values = 1
+        else:
+            limited = products[:25]
+            options = [
+                discord.SelectOption(
+                    label=product["name"][:100],
+                    description=f"{product['robux']} Robux"[:100],
+                    value=product["id"]
+                )
+                for product in limited
+            ]
+            max_values = len(options)
+
+        category_name = get_category_name_by_id(category_id)
+        placeholder = f"Kategori: {category_name}"[:150]
+        super().__init__(placeholder=placeholder, min_values=1, max_values=max_values, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        if self.values[0] == "none":
+            await interaction.response.send_message("Tidak ada produk yang bisa dipilih.", ephemeral=True)
+            return
+
+        added = 0
+        for product_id in self.values:
+            product = find_product_by_id(product_id)
+            if not product or not product.get("active", True):
+                continue
+            if add_product_to_cart(session, product):
+                added += 1
+
+        await interaction.response.send_message(
+            f"✅ {added} produk ditambahkan ke keranjang. Qty default semua item adalah 1.",
+            embed=build_kasir_preview_embed(self.session_id),
+            view=KasirView(self.session_id),
+            ephemeral=True
+        )
+
+
+class KasirProductView(View):
+    def __init__(self, session_id: str):
+        super().__init__(timeout=180)
+        self.session_id = session_id
+        self.add_item(KasirProductMultiSelect(session_id))
+
+    @discord.ui.button(label="Cari Produk", style=discord.ButtonStyle.primary)
+    async def cari_produk(self, interaction: discord.Interaction, button: Button):
+        if self.session_id not in kasir_sessions:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+        await interaction.response.send_modal(ProductSearchModal(self.session_id))
+
+    @discord.ui.button(label="Back ke Kategori", style=discord.ButtonStyle.secondary)
+    async def back_category(self, interaction: discord.Interaction, button: Button):
+        if self.session_id not in kasir_sessions:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+        await interaction.response.send_message("Pilih kategori lain:", view=KasirCategoryView(self.session_id), ephemeral=True)
+
+    @discord.ui.button(label="Lihat Keranjang", style=discord.ButtonStyle.success)
+    async def lihat_keranjang(self, interaction: discord.Interaction, button: Button):
+        if self.session_id not in kasir_sessions:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            embed=build_kasir_preview_embed(self.session_id),
+            view=KasirView(self.session_id),
+            ephemeral=True
+        )
+
+
+class EditQtySelect(Select):
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        session = kasir_sessions[self.session_id]
+
+        options = []
+        for item in session["items"][:25]:
+            options.append(
+                discord.SelectOption(
+                    label=f"{item['name']} (qty {item['qty']})"[:100],
+                    description=f"{get_category_name_by_id(item.get('category_id'))} - {item['robux']} Robux"[:100],
+                    value=item["product_id"]
+                )
+            )
+
+        if not options:
+            options = [discord.SelectOption(label="Belum ada item", value="none")]
+
+        super().__init__(placeholder="Pilih item yang ingin diubah jumlahnya", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
+            return
+        await interaction.response.send_modal(EditQtyModal(self.session_id, self.values[0]))
+
+
+class EditQtyView(View):
+    def __init__(self, session_id: str):
+        super().__init__(timeout=120)
+        self.add_item(EditQtySelect(session_id))
+
+
+class RemoveItemSelect(Select):
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        session = kasir_sessions[self.session_id]
+
+        options = []
+        for item in session["items"][:25]:
+            options.append(
+                discord.SelectOption(
+                    label=item["name"][:100],
+                    description=f"{get_category_name_by_id(item.get('category_id'))} - qty {item['qty']}"[:100],
+                    value=item["product_id"]
+                )
+            )
+
+        if not options:
+            options = [discord.SelectOption(label="Belum ada item", value="none")]
+
+        super().__init__(placeholder="Pilih item yang ingin dihapus", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
+            return
+
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        session["items"] = [item for item in session["items"] if item["product_id"] != self.values[0]]
+        await interaction.response.send_message(
+            "🗑️ Item dihapus dari keranjang.",
+            embed=build_kasir_preview_embed(self.session_id),
+            view=KasirView(self.session_id),
+            ephemeral=True
+        )
+
+
+class RemoveItemView(View):
+    def __init__(self, session_id: str):
+        super().__init__(timeout=120)
+        self.add_item(RemoveItemSelect(session_id))
+
+
+class KasirView(View):
+    def __init__(self, session_id: str):
+        super().__init__(timeout=300)
+        self.session_id = session_id
+
+    @discord.ui.button(label="Tambah Produk", style=discord.ButtonStyle.success)
+    async def tambah_produk(self, interaction: discord.Interaction, button: Button):
+        if self.session_id not in kasir_sessions:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+
+        if not get_active_categories():
+            await interaction.response.send_message("Belum ada kategori aktif di katalog.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "Pilih kategori produk:",
+            view=KasirCategoryView(self.session_id),
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Edit Qty", style=discord.ButtonStyle.primary)
+    async def edit_qty(self, interaction: discord.Interaction, button: Button):
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+        if not session["items"]:
+            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "Pilih item yang ingin diubah qty:",
+            view=EditQtyView(self.session_id),
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Hapus Item", style=discord.ButtonStyle.danger)
+    async def hapus_item(self, interaction: discord.Interaction, button: Button):
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+        if not session["items"]:
+            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "Pilih item yang ingin dihapus:",
+            view=RemoveItemView(self.session_id),
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Selesai", style=discord.ButtonStyle.secondary)
+    async def selesai(self, interaction: discord.Interaction, button: Button):
+        session = kasir_sessions.get(self.session_id)
+        if not session:
+            await interaction.response.send_message("Session kasir tidak ditemukan.", ephemeral=True)
+            return
+        if not session["items"]:
+            await interaction.response.send_message("Belum ada item di keranjang.", ephemeral=True)
+            return
+
+        invoice = build_invoice_text(session)
+        del kasir_sessions[self.session_id]
+        await interaction.response.send_message(invoice)
+
+    @discord.ui.button(label="Batal", style=discord.ButtonStyle.danger)
+    async def batal(self, interaction: discord.Interaction, button: Button):
+        if self.session_id in kasir_sessions:
+            del kasir_sessions[self.session_id]
+        await interaction.response.send_message("Kasir dibatalkan.", ephemeral=True)
+
+
+@bot.tree.command(name="kasir", description="Mulai kasir dan hitung invoice dari rate harian")
 async def kasir(interaction: discord.Interaction):
     if not is_admin(interaction.user):
-        await interaction.response.send_message("❌ Hanya admin yang bisa memakai kasir.", ephemeral=True)
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
+        return
+    await interaction.response.send_modal(KasirStartModal())
+
+
+# =========================================================
+# MASTER KATEGORI
+# =========================================================
+@bot.tree.command(name="kategori_tambah", description="Tambah kategori master kasir")
+@app_commands.describe(nama="Nama kategori")
+async def kategori_tambah(interaction: discord.Interaction, nama: str):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
-    await interaction.response.send_modal(StartKasirModal())
+    nama = nama.strip()
+    if not nama:
+        await interaction.response.send_message("Nama kategori tidak boleh kosong.", ephemeral=True)
+        return
+
+    if get_category_by_name(nama):
+        await interaction.response.send_message("Kategori dengan nama itu sudah ada.", ephemeral=True)
+        return
+
+    CATEGORIES.append({
+        "id": str(uuid.uuid4()),
+        "name": nama,
+        "active": True,
+        "protected": normalize_key(nama) == normalize_key(UNCATEGORIZED_NAME),
+    })
+    save_categories()
+    await interaction.response.send_message(f"✅ Kategori **{nama}** berhasil ditambahkan.", ephemeral=True)
+
+
+@bot.tree.command(name="kategori_edit", description="Edit kategori master kasir")
+@app_commands.describe(nama="Nama kategori yang ingin diedit", nama_baru="Nama kategori baru", aktif="Status aktif kategori")
+@app_commands.autocomplete(nama=category_autocomplete)
+async def kategori_edit(
+    interaction: discord.Interaction,
+    nama: str,
+    nama_baru: Optional[str] = None,
+    aktif: Optional[bool] = None
+):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
+        return
+
+    category = get_category_by_name(nama)
+    if not category:
+        await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
+        return
+
+    if nama_baru:
+        nama_baru = nama_baru.strip()
+        if not nama_baru:
+            await interaction.response.send_message("Nama kategori baru tidak boleh kosong.", ephemeral=True)
+            return
+
+        existing = get_category_by_name(nama_baru)
+        if existing and existing is not category:
+            await interaction.response.send_message("Nama kategori baru sudah dipakai kategori lain.", ephemeral=True)
+            return
+
+        category["name"] = nama_baru
+        for product in PRODUCTS:
+            if product.get("category_id") == category.get("id"):
+                product["category"] = nama_baru
+        save_products()
+
+    if aktif is not None:
+        category["active"] = aktif
+
+    save_categories()
+    await interaction.response.send_message("✅ Kategori berhasil diperbarui.", ephemeral=True)
+
+
+@bot.tree.command(name="kategori_hapus", description="Hapus kategori dan semua produk di dalamnya")
+@app_commands.describe(nama="Nama kategori yang ingin dihapus")
+@app_commands.autocomplete(nama=category_autocomplete)
+async def kategori_hapus(interaction: discord.Interaction, nama: str):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
+        return
+
+    category = get_category_by_name(nama)
+    if not category:
+        await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
+        return
+
+    if category.get("protected"):
+        await interaction.response.send_message("Kategori default tidak boleh dihapus.", ephemeral=True)
+        return
+
+    product_count = sum(1 for product in PRODUCTS if product.get("category_id") == category.get("id"))
+    PRODUCTS[:] = [product for product in PRODUCTS if product.get("category_id") != category.get("id")]
+    CATEGORIES[:] = [item for item in CATEGORIES if item.get("id") != category.get("id")]
+
+    save_products()
+    save_categories()
+    await interaction.response.send_message(
+        f"🗑️ Kategori **{category['name']}** berhasil dihapus. {product_count} produk ikut terhapus.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="kategori_list", description="Lihat daftar kategori master kasir")
+async def kategori_list(interaction: discord.Interaction):
+    if not CATEGORIES:
+        await interaction.response.send_message("Belum ada kategori.", ephemeral=True)
+        return
+
+    lines = []
+    for idx, category in enumerate(sorted(CATEGORIES, key=lambda x: normalize_key(x.get("name", ""))), start=1):
+        total_produk = sum(1 for product in PRODUCTS if product.get("category_id") == category.get("id"))
+        status = "aktif" if category.get("active", True) else "nonaktif"
+        lines.append(f"{idx}. {category['name']} - {status} - {total_produk} produk")
+
+    embed = discord.Embed(title="Daftar Kategori Kasir", description="\n".join(lines), color=COLOR)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # =========================================================
 # PRODUK KASIR
 # =========================================================
 @bot.tree.command(name="produk_tambah", description="Tambah produk ke katalog kasir")
-@app_commands.describe(nama="Nama produk", kategori="Kategori produk", robux="Jumlah robux")
+@app_commands.describe(nama="Nama produk", kategori="Nama kategori", robux="Jumlah robux")
+@app_commands.autocomplete(kategori=category_autocomplete)
 async def produk_tambah(interaction: discord.Interaction, nama: str, kategori: str, robux: int):
     if not is_admin(interaction.user):
         await interaction.response.send_message("❌ Hanya admin.", ephemeral=True)
         return
 
     nama = nama.strip()
-    kategori = kategori.strip() or "Umum"
+    kategori = kategori.strip()
 
-    if find_product_by_name(nama):
-        await interaction.response.send_message("Produk dengan nama itu sudah ada.", ephemeral=True)
+    if not nama:
+        await interaction.response.send_message("Nama produk tidak boleh kosong.", ephemeral=True)
+        return
+
+    category = get_category_by_name(kategori)
+    if not category:
+        await interaction.response.send_message("Kategori tidak ditemukan. Buat dulu dengan /kategori_tambah.", ephemeral=True)
+        return
+
+    if find_product_by_name_and_category(nama, category["id"]):
+        await interaction.response.send_message("Produk dengan nama itu sudah ada di kategori tersebut.", ephemeral=True)
         return
 
     if robux <= 0:
@@ -1457,13 +1502,14 @@ async def produk_tambah(interaction: discord.Interaction, nama: str, kategori: s
     PRODUCTS.append({
         "id": str(uuid.uuid4()),
         "name": nama,
-        "category": kategori,
+        "category_id": category["id"],
+        "category": category["name"],
         "robux": robux,
         "active": True,
     })
     save_products()
     await interaction.response.send_message(
-        f"✅ Produk **{nama}** berhasil ditambahkan ke kategori **{kategori}**.",
+        f"✅ Produk **{nama}** berhasil ditambahkan ke kategori **{category['name']}**.",
         ephemeral=True
     )
 
@@ -1476,7 +1522,7 @@ async def produk_tambah(interaction: discord.Interaction, nama: str, kategori: s
     robux="Robux baru",
     aktif="Status aktif produk"
 )
-@app_commands.autocomplete(nama=product_autocomplete)
+@app_commands.autocomplete(nama=product_autocomplete, kategori=category_autocomplete)
 async def produk_edit(
     interaction: discord.Interaction,
     nama: str,
@@ -1494,16 +1540,33 @@ async def produk_edit(
         await interaction.response.send_message("Produk tidak ditemukan.", ephemeral=True)
         return
 
-    if nama_baru:
-        nama_baru = nama_baru.strip()
-        existing = find_product_by_name(nama_baru)
-        if existing and existing is not product:
-            await interaction.response.send_message("Nama produk baru sudah dipakai produk lain.", ephemeral=True)
-            return
-        product["name"] = nama_baru
+    target_category_id = product.get("category_id")
+    target_category_name = get_category_name_by_id(target_category_id)
 
     if kategori is not None:
-        product["category"] = kategori.strip() or "Umum"
+        category = get_category_by_name(kategori)
+        if not category:
+            await interaction.response.send_message("Kategori baru tidak ditemukan.", ephemeral=True)
+            return
+        target_category_id = category["id"]
+        target_category_name = category["name"]
+
+    if nama_baru:
+        nama_baru = nama_baru.strip()
+        if not nama_baru:
+            await interaction.response.send_message("Nama baru tidak boleh kosong.", ephemeral=True)
+            return
+    else:
+        nama_baru = product["name"]
+
+    existing = find_product_by_name_and_category(nama_baru, target_category_id)
+    if existing and existing is not product:
+        await interaction.response.send_message("Produk dengan nama itu sudah ada di kategori tujuan.", ephemeral=True)
+        return
+
+    product["name"] = nama_baru
+    product["category_id"] = target_category_id
+    product["category"] = target_category_name
 
     if robux is not None:
         if robux <= 0:
@@ -1531,28 +1594,32 @@ async def produk_hapus(interaction: discord.Interaction, nama: str):
         await interaction.response.send_message("Produk tidak ditemukan.", ephemeral=True)
         return
 
+    category_name = get_category_name_by_id(product.get("category_id"))
     PRODUCTS.remove(product)
     save_products()
     await interaction.response.send_message(
-        f"🗑️ Produk **{product['name']}** dihapus dari kategori **{product.get('category', 'Umum')}**.",
+        f"🗑️ Produk **{product['name']}** dihapus dari kategori **{category_name}**.",
         ephemeral=True
     )
 
 
 @bot.tree.command(name="produk_list", description="Lihat katalog produk kasir")
 @app_commands.describe(kategori="Filter kategori (opsional)")
+@app_commands.autocomplete(kategori=category_autocomplete)
 async def produk_list(interaction: discord.Interaction, kategori: Optional[str] = None):
     if not PRODUCTS:
         await interaction.response.send_message("Belum ada katalog produk.", ephemeral=True)
         return
 
+    filtered = []
     if kategori:
-        filtered = [
-            p for p in PRODUCTS
-            if normalize_key(str(p.get("category", "Umum"))) == normalize_key(kategori)
-        ]
+        category = get_category_by_name(kategori)
+        if not category:
+            await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
+            return
+        filtered = [p for p in PRODUCTS if p.get("category_id") == category.get("id")]
     else:
-        filtered = sorted(PRODUCTS, key=lambda x: (normalize_key(x.get("category", "Umum")), normalize_key(x["name"])))
+        filtered = sorted(PRODUCTS, key=lambda x: (normalize_key(get_category_name_by_id(x.get("category_id"))), normalize_key(x.get("name", ""))))
 
     if not filtered:
         await interaction.response.send_message("Tidak ada produk pada kategori itu.", ephemeral=True)
@@ -1561,9 +1628,8 @@ async def produk_list(interaction: discord.Interaction, kategori: Optional[str] 
     lines = []
     for i, product in enumerate(filtered, start=1):
         status = "aktif" if product.get("active", True) else "nonaktif"
-        lines.append(
-            f"{i}. [{product.get('category', 'Umum')}] {product['name']} ({product['robux']} robux) - {status}"
-        )
+        category_name = get_category_name_by_id(product.get("category_id"))
+        lines.append(f"{i}. [{category_name}] {product['name']} ({product['robux']} robux) - {status}")
 
     chunks = []
     current = []
@@ -1692,16 +1758,12 @@ async def on_message(message: discord.Message):
         if trigger in CUSTOM_PRICELISTS:
             payload = CUSTOM_PRICELISTS[trigger]
             files = []
-
             for image_path in payload.get("images", []):
                 path = Path(image_path)
                 if path.exists():
                     files.append(discord.File(str(path)))
 
-            await message.channel.send(
-                content=payload.get("text") or None,
-                files=files if files else None
-            )
+            await message.channel.send(content=payload.get("text") or None, files=files if files else None)
             return
 
     await bot.process_commands(message)
