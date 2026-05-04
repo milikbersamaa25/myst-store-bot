@@ -704,24 +704,37 @@ def build_kasir_preview_embed(session: dict) -> discord.Embed:
 
 
 def build_kasir_invoice_embed(session: dict) -> discord.Embed:
-    embed = discord.Embed(title="Fraktur Online", color=COLOR)
-    embed.add_field(name="Customer", value=session["customer"], inline=False)
-    embed.add_field(name="Rate Hari Ini", value=str(session["rate"]), inline=False)
-    embed.add_field(name="Tanggal", value=format_wib(), inline=False)
-
     lines = []
+
+    # Header
+    lines.append(f"● Customer : {session['customer']}")
+    lines.append(f"● Tanggal : {format_wib()}")
+    lines.append("")
+    lines.append("━.✦ List Pembelian")
+    lines.append("")
+
     total = 0
+
     for i, item in enumerate(session["items"], start=1):
         qty_text = f" x{item['qty']}" if item["qty"] > 1 else ""
         subtotal = item["price"] * item["qty"]
         total += subtotal
-        lines.append(f"{i}. {item['name']} ({get_item_label(item)}){qty_text} : {format_rupiah(subtotal)}")
 
-    embed.add_field(name="**List Pembelian**", value="\n".join(lines), inline=False)
-    embed.add_field(name="**TOTAL**", value=f"**{format_rupiah(total)}**", inline=False)
-    embed.timestamp = now_wib()
-    return embed
+        if is_lainnya_product(item):
+            info = "Lainnya"
+        else:
+            info = item["robux"]
 
+        lines.append(f"{i}. {item['name']} ({info}){qty_text} : {format_rupiah(subtotal)}")
+
+    lines.append("")
+    lines.append("━.✦ Total Pembayaran")
+    lines.append(format_rupiah(total))
+
+    return discord.Embed(
+        description="\n".join(lines),
+        color=COLOR
+    )
 
 class QuantityModal(Modal):
     def __init__(self, session_id: str, product: dict):
