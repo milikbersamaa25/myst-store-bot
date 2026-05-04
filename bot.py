@@ -707,11 +707,10 @@ def build_kasir_invoice_embed(session: dict) -> discord.Embed:
     lines = []
 
     # Header
-    lines.append(f"● Customer : {session['customer']}")
-    lines.append(f"● Tanggal : {format_wib()}")
+    lines.append(f"* **Customer :** {session['customer']}")
+    lines.append(f"* **Tanggal :** {format_wib()}")
     lines.append("")
-    lines.append("━.✦ List Pembelian")
-    lines.append("")
+    lines.append("**━.✦ List Pembelian**")
 
     total = 0
 
@@ -728,7 +727,7 @@ def build_kasir_invoice_embed(session: dict) -> discord.Embed:
         lines.append(f"{i}. {item['name']} ({info}){qty_text} : {format_rupiah(subtotal)}")
 
     lines.append("")
-    lines.append("━.✦ Total Pembayaran")
+    lines.append("**━.✦ Total Pembayaran**")
     lines.append(format_rupiah(total))
 
     return discord.Embed(
