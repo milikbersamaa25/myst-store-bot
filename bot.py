@@ -17,8 +17,16 @@ WIB = ZoneInfo("Asia/Jakarta")
 COLOR = 0x00F8FF
 MAX_SLOT = 20
 
-BASE_DIR = Path("data_store_bot")
-BASE_DIR.mkdir(exist_ok=True)
+# Railway Volume biasanya ada di /data.
+# Kalau /data ada, bot akan simpan/baca data dari /data/data_store_bot.
+# Kalau dijalankan lokal, fallback ke folder script.
+RAILWAY_VOLUME = Path("/data")
+if RAILWAY_VOLUME.exists():
+    BASE_DIR = RAILWAY_VOLUME / "data_store_bot"
+else:
+    BASE_DIR = Path(__file__).resolve().parent / "data_store_bot"
+
+BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 VIP_FILE = BASE_DIR / "vip_sessions.json"
 PRODUCT_FILE = BASE_DIR / "cashier_products.json"
@@ -88,6 +96,24 @@ def calculate_price(robux: int, rate: int) -> int:
     return ((raw_price + 499) // 500) * 500
 
 
+def is_lainnya_product(product: dict) -> bool:
+    return product.get("category") == "Lainnya" or product.get("robux") is None
+
+
+def get_item_label(item: dict) -> str:
+    if item.get("category") == "Lainnya" or item.get("robux") is None:
+        return "Lainnya"
+    return f"{item['robux']} robux"
+
+
+def get_product_preview_description(product: dict, rate: int = 0) -> str:
+    if is_lainnya_product(product):
+        return f"Lainnya | {format_rupiah(int(product.get('price', 0)))}"[:100]
+
+    preview_price = calculate_price(int(product["robux"]), rate)
+    return f"{product['robux']} robux | {format_rupiah(preview_price)}"[:100]
+
+
 def parse_slot_numbers(text: str) -> list[int]:
     raw = text.replace(" ", "")
     if not raw:
@@ -115,44 +141,6 @@ def parse_slot_numbers(text: str) -> list[int]:
             result.add(num)
 
     return sorted(result)
-
-
-def is_lainnya_product(product: dict) -> bool:
-    return product.get("category") == "Lainnya" or product.get("robux") is None
-
-
-def get_product_preview_description(product: dict, rate: int = 0) -> str:
-    if is_lainnya_product(product):
-        return f"Lainnya | {format_rupiah(int(product.get('price', 0)))}"[:100]
-
-    preview_price = calculate_price(int(product["robux"]), rate)
-    return f"{product['robux']} robux | {format_rupiah(preview_price)}"[:100]
-
-
-def get_item_label(item: dict) -> str:
-    if item.get("category") == "Lainnya" or item.get("robux") is None:
-        return "Lainnya"
-    return f"{item['robux']} robux"
-
-
-def build_product_choices(current: str):
-    current_key = normalize_key(current)
-    result = []
-    for product in PRODUCTS:
-        if not current_key or current_key in normalize_key(product["name"]):
-            result.append(
-                app_commands.Choice(
-                    name=product["name"][:100],
-                    value=product["name"][:100]
-                )
-            )
-        if len(result) >= 25:
-            break
-    return result
-
-
-async def product_autocomplete(interaction: discord.Interaction, current: str):
-    return build_product_choices(current)
 
 
 # =========================================================
@@ -224,6 +212,26 @@ def find_product_by_name(name: str):
     return None
 
 
+def build_product_choices(current: str):
+    current_key = normalize_key(current)
+    result = []
+    for product in PRODUCTS:
+        if not current_key or current_key in normalize_key(product["name"]):
+            result.append(
+                app_commands.Choice(
+                    name=product["name"][:100],
+                    value=product["name"][:100]
+                )
+            )
+        if len(result) >= 25:
+            break
+    return result
+
+
+async def product_autocomplete(interaction: discord.Interaction, current: str):
+    return build_product_choices(current)
+
+
 # =========================================================
 # HELP COMMANDS
 # =========================================================
@@ -259,10 +267,10 @@ async def adminhelp(interaction: discord.Interaction):
         "`/delete` - Hapus slot VIP\n\n"
         "**Kasir:**\n"
         "`/kasir` - Mulai kasir dengan rate harian\n"
-        "`/produk_tambah` - Tambah produk katalog kasir berbasis robux\n"
-        "`/produk_lainnya_tambah` - Tambah produk kategori Lainnya dengan harga langsung\n"
-        "`/produk_lainnya_edit` - Edit harga produk kategori Lainnya\n"
-        "`/produk_edit` - Edit produk katalog kasir berbasis robux\n"
+        "`/produk_tambah` - Tambah produk robux\n"
+        "`/produk_lainnya_tambah` - Tambah produk Lainnya harga langsung\n"
+        "`/produk_lainnya_edit` - Edit produk Lainnya\n"
+        "`/produk_edit` - Edit produk robux\n"
         "`/produk_hapus` - Hapus produk katalog kasir\n"
         "`/produk_list` - Lihat katalog produk kasir\n\n"
         "**Pricelist Customer:**\n"
@@ -271,8 +279,8 @@ async def adminhelp(interaction: discord.Interaction):
         "**Command ! custom:**\n"
         "`/pricelistedit` - Tambah/edit/hapus command ! custom\n\n"
         "**Catatan:**\n"
-        "Harga kasir produk robux = `robux x rate`, lalu dibulatkan ke atas ke kelipatan 500.\n"
-        "Produk kategori Lainnya memakai harga langsung dan tidak dihitung dengan rate."
+        "Produk robux dihitung dari `robux x rate`, lalu dibulatkan ke atas kelipatan 500.\n"
+        "Produk Lainnya memakai harga langsung tanpa rate."
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -339,13 +347,7 @@ class VipSetupModal(Modal):
         self.ps = TextInput(label="PS / Host")
         self.server = TextInput(label="Server (opsional)", required=False)
 
-        for item in (
-            self.waktu,
-            self.durasi_waktu,
-            self.harga,
-            self.ps,
-            self.server
-        ):
+        for item in (self.waktu, self.durasi_waktu, self.harga, self.ps, self.server):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -370,11 +372,7 @@ class JoinModal(Modal):
     def __init__(self, message_id: int):
         super().__init__(title="Ikut VIP")
         self.message_id = message_id
-
-        self.roblox = TextInput(
-            label="Username Roblox",
-            placeholder="Contoh : KennMyst"
-        )
+        self.roblox = TextInput(label="Username Roblox", placeholder="Contoh : KennMyst")
         self.add_item(self.roblox)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -401,27 +399,18 @@ class JoinModal(Modal):
 class DeleteSelect(Select):
     def __init__(self, message_id: int, user_id: int):
         self.message_id = message_id
-
         session = get_session(message_id)
         vip_list = session["list"]
 
         options = []
         for idx, data in enumerate(vip_list, start=1):
             if data["user_id"] == user_id:
-                options.append(
-                    discord.SelectOption(
-                        label=f"{idx}. {data['roblox']}"[:100],
-                        value=data["id"]
-                    )
-                )
+                options.append(discord.SelectOption(label=f"{idx}. {data['roblox']}"[:100], value=data["id"]))
 
         if not options:
             options.append(discord.SelectOption(label="Tidak ada slot", value="none"))
 
-        super().__init__(
-            placeholder="Pilih slot kamu",
-            options=options
-        )
+        super().__init__(placeholder="Pilih slot kamu", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
@@ -465,13 +454,11 @@ class VipView(View):
         if len(get_session(self.message_id)["list"]) >= MAX_SLOT:
             await interaction.response.send_message("Slot sudah penuh.", ephemeral=True)
             return
-
         await interaction.response.send_modal(JoinModal(self.message_id))
 
     @discord.ui.button(label="- Hapus slot saya", style=discord.ButtonStyle.danger)
     async def delete(self, interaction: discord.Interaction, button: Button):
         session = get_session(self.message_id)
-
         if not any(x["user_id"] == interaction.user.id for x in session["list"]):
             await interaction.response.send_message("Kamu belum punya slot.", ephemeral=True)
             return
@@ -487,7 +474,6 @@ class VipView(View):
         if not is_admin(interaction.user):
             await interaction.response.send_message("Hanya admin.", ephemeral=True)
             return
-
         await interaction.response.send_modal(VipSetupModal(self.message_id))
 
     @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary)
@@ -502,7 +488,6 @@ async def vip(ctx: commands.Context):
     msg = await ctx.send(embed=discord.Embed(title="Membuat list VIP...", color=COLOR))
     get_session(msg.id)
     save_vip_sessions()
-
     await msg.edit(embed=make_vip_embed(msg.id), view=VipView(msg.id))
 
     try:
@@ -541,24 +526,12 @@ async def slash_delete(interaction: discord.Interaction, message_id: str, nomor:
 
     msg = await interaction.channel.fetch_message(mid)
     await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
-
     await interaction.response.send_message("Slot berhasil dihapus.", ephemeral=True)
 
 
 @bot.tree.command(name="editslot", description="Admin: edit slot VIP")
-@app_commands.describe(
-    message_id="ID pesan VIP",
-    nomor="Nomor slot",
-    roblox="Username Roblox",
-    member="User Discord"
-)
-async def slash_edit(
-    interaction: discord.Interaction,
-    message_id: str,
-    nomor: int,
-    roblox: str,
-    member: discord.Member
-):
+@app_commands.describe(message_id="ID pesan VIP", nomor="Nomor slot", roblox="Username Roblox", member="User Discord")
+async def slash_edit(interaction: discord.Interaction, message_id: str, nomor: int, roblox: str, member: discord.Member):
     if not is_admin(interaction.user):
         await interaction.response.send_message("Hanya admin.", ephemeral=True)
         return
@@ -602,26 +575,16 @@ async def slash_edit(
 
     msg = await interaction.channel.fetch_message(mid)
     await msg.edit(embed=make_vip_embed(mid), view=VipView(mid))
-
     await interaction.response.send_message("Slot berhasil diedit.", ephemeral=True)
 
 
 @bot.tree.command(name="pay", description="Admin: update payment slot VIP")
-@app_commands.describe(
-    message_id="ID pesan VIP",
-    slots="Contoh: 1,2,10 atau 1-5",
-    status="Status pembayaran"
-)
+@app_commands.describe(message_id="ID pesan VIP", slots="Contoh: 1,2,10 atau 1-5", status="Status pembayaran")
 @app_commands.choices(status=[
     app_commands.Choice(name="paid", value="paid"),
     app_commands.Choice(name="unpaid", value="unpaid")
 ])
-async def slash_paid(
-    interaction: discord.Interaction,
-    message_id: str,
-    slots: str,
-    status: app_commands.Choice[str]
-):
+async def slash_paid(interaction: discord.Interaction, message_id: str, slots: str, status: app_commands.Choice[str]):
     if not is_admin(interaction.user):
         await interaction.response.send_message("Hanya admin.", ephemeral=True)
         return
@@ -872,7 +835,6 @@ class QuantityModal(Modal):
             rate = int(session["rate"])
             robux = int(self.product["robux"])
             harga = calculate_price(robux, rate)
-
             session["items"].append({
                 "category": self.product.get("category", "Robux"),
                 "name": self.product["name"],
@@ -1054,7 +1016,7 @@ async def produk_tambah(interaction: discord.Interaction, nama: str, robux: int)
     await interaction.response.send_message(f"✅ Produk **{nama}** berhasil ditambahkan.", ephemeral=True)
 
 
-@bot.tree.command(name="produk_lainnya_tambah", description="Tambah produk kategori Lainnya dengan harga langsung")
+@bot.tree.command(name="produk_lainnya_tambah", description="Tambah produk Lainnya dengan harga langsung")
 @app_commands.describe(nama="Nama produk", harga="Harga langsung dalam rupiah")
 async def produk_lainnya_tambah(interaction: discord.Interaction, nama: str, harga: int):
     if not is_admin(interaction.user):
@@ -1078,13 +1040,13 @@ async def produk_lainnya_tambah(interaction: discord.Interaction, nama: str, har
     })
     save_products()
     await interaction.response.send_message(
-        f"✅ Produk kategori **Lainnya** berhasil ditambahkan: **{nama}** - {format_rupiah(harga)}.",
+        f"✅ Produk **{nama}** kategori **Lainnya** berhasil ditambahkan: {format_rupiah(harga)}.",
         ephemeral=True
     )
 
 
-@bot.tree.command(name="produk_lainnya_edit", description="Edit produk kategori Lainnya")
-@app_commands.describe(nama="Nama produk kategori Lainnya", nama_baru="Nama baru", harga="Harga baru")
+@bot.tree.command(name="produk_lainnya_edit", description="Edit produk Lainnya")
+@app_commands.describe(nama="Nama produk Lainnya", nama_baru="Nama baru", harga="Harga baru")
 @app_commands.autocomplete(nama=product_autocomplete)
 async def produk_lainnya_edit(
     interaction: discord.Interaction,
@@ -1122,7 +1084,7 @@ async def produk_lainnya_edit(
     product["robux"] = None
 
     save_products()
-    await interaction.response.send_message("✅ Produk kategori Lainnya berhasil diperbarui.", ephemeral=True)
+    await interaction.response.send_message("✅ Produk Lainnya berhasil diperbarui.", ephemeral=True)
 
 
 @bot.tree.command(name="produk_edit", description="Edit produk katalog kasir")
@@ -1145,7 +1107,7 @@ async def produk_edit(
 
     if is_lainnya_product(product):
         await interaction.response.send_message(
-            "Produk ini kategori Lainnya. Gunakan `/produk_lainnya_edit` untuk mengubah nama atau harga.",
+            "Produk ini kategori Lainnya. Gunakan `/produk_lainnya_edit`.",
             ephemeral=True
         )
         return
@@ -1193,13 +1155,9 @@ async def produk_list(interaction: discord.Interaction):
     lines = []
     for i, product in enumerate(PRODUCTS, start=1):
         if is_lainnya_product(product):
-            lines.append(
-                f"{i}. [Lainnya] {product['name']} - {format_rupiah(int(product.get('price', 0)))}"
-            )
+            lines.append(f"{i}. [Lainnya] {product['name']} - {format_rupiah(int(product.get('price', 0)))}")
         else:
-            lines.append(
-                f"{i}. [Robux] {product['name']} ({product['robux']} robux)"
-            )
+            lines.append(f"{i}. [Robux] {product['name']} ({product['robux']} robux)")
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Produk Robux mengikuti rate harian. Produk Lainnya memakai harga langsung.")
@@ -1332,6 +1290,7 @@ async def on_ready():
     try:
         synced = await bot.tree.sync()
         print(f"Bot siap sebagai {bot.user}. Slash synced: {len(synced)}")
+        print(f"Data folder aktif: {BASE_DIR}")
     except Exception as e:
         print(f"Gagal sync slash command: {e}")
 
