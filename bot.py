@@ -173,22 +173,8 @@ def get_session(message_id: int | str):
 def find_product_by_name(name: str):
     key = normalize_key(name)
     for product in PRODUCTS:
-        if normalize_key(product["name"]) == key:
+        if normalize_key(product.get("name", "")) == key:
             return product
-    return None
-
-
-def find_product_by_name_and_category(name: str, category: str):
-    name_key = normalize_key(name)
-    category_key = normalize_key(category)
-
-    for product in PRODUCTS:
-        if (
-            normalize_key(product.get("name", "")) == name_key
-            and normalize_key(product.get("category", "")) == category_key
-        ):
-            return product
-
     return None
 
 
@@ -251,7 +237,7 @@ def build_product_choices(current: str):
     result = []
 
     for product in PRODUCTS:
-        label = f"[{product.get('category', '-')}] {product['name']}"
+        label = f"[{product.get('category', '-')}] {product.get('name', '-')}"
         if not current_key or current_key in normalize_key(label):
             result.append(
                 app_commands.Choice(
@@ -1208,11 +1194,11 @@ async def produk_tambah(
         return
 
     if find_product_by_name_and_category(nama, kategori_asli):
-    await interaction.response.send_message(
-        "Produk dengan nama itu sudah ada di kategori yang sama.",
-        ephemeral=True
-    )
-    return
+        await interaction.response.send_message(
+            "Produk dengan nama itu sudah ada di kategori yang sama.",
+            ephemeral=True
+        )
+        return
 
     if is_lainnya_category(kategori_asli):
         if harga is None or harga <= 0:
@@ -1269,31 +1255,27 @@ async def produk_edit(
         await interaction.response.send_message("Produk tidak ditemukan.", ephemeral=True)
         return
 
+    kategori_asli = None
+    if kategori:
+        kategori_asli = get_category_name(kategori)
+        if not kategori_asli:
+            await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
+            return
+
+    target_category = kategori_asli if kategori_asli else product.get("category", "")
+
     if nama_baru:
-    target_category = kategori if kategori else product.get("category", "")
-
-    if kategori:
-        kategori_asli = get_category_name(kategori)
-        if not kategori_asli:
-            await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
+        existing = find_product_by_name_and_category(nama_baru, target_category)
+        if existing and existing is not product:
+            await interaction.response.send_message(
+                "Nama produk baru sudah dipakai di kategori yang sama.",
+                ephemeral=True
+            )
             return
-        target_category = kategori_asli
 
-    existing = find_product_by_name_and_category(nama_baru, target_category)
-    if existing and existing is not product:
-        await interaction.response.send_message(
-            "Nama produk baru sudah dipakai di kategori yang sama.",
-            ephemeral=True
-        )
-        return
+        product["name"] = nama_baru.strip()
 
-    product["name"] = nama_baru.strip()
-
-    if kategori:
-        kategori_asli = get_category_name(kategori)
-        if not kategori_asli:
-            await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
-            return
+    if kategori_asli:
         product["category"] = kategori_asli
 
     kategori_final = product.get("category", "")
@@ -1419,11 +1401,6 @@ class ProductListCategorySelect(Select):
 
         embed.description = "\n".join(lines)
 
-        if is_lainnya_category(category):
-            embed.set_footer(text="Kategori Lainnya memakai harga rupiah langsung.")
-        else:
-            embed.set_footer(text="Kategori ini memakai robux dan dihitung dengan rate saat kasir.")
-
         await interaction.response.edit_message(
             content=None,
             embed=embed,
@@ -1451,23 +1428,6 @@ async def produk_list(interaction: discord.Interaction):
         view=ProductListCategoryView(),
         ephemeral=True
     )
-    if not PRODUCTS:
-        await interaction.response.send_message("Belum ada katalog produk.", ephemeral=True)
-        return
-
-    embed = discord.Embed(title="Katalog Produk Kasir", color=COLOR)
-
-    lines = []
-    for i, product in enumerate(PRODUCTS, start=1):
-        category = product.get("category", "-")
-        if is_lainnya_product(product):
-            lines.append(f"{i}. [Lainnya] {product['name']} - {format_rupiah(int(product.get('price', 0)))}")
-        else:
-            lines.append(f"{i}. [{category}] {product['name']} ({product['robux']} robux)")
-
-    embed.description = "\n".join(lines)
-    embed.set_footer(text="Kategori Lainnya memakai harga rupiah langsung. Kategori lain memakai robux x rate.")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # =========================================================
