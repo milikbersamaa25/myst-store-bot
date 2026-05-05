@@ -812,10 +812,21 @@ class QuantityModal(Modal):
                 "qty": qty
             })
 
-        await interaction.response.send_message(
-            "✅ Produk ditambahkan ke preview kasir.",
-            ephemeral=True
+        preview_msg = session.get("preview_message")
+
+if preview_msg:
+    try:
+        await preview_msg.edit(
+            embed=build_kasir_preview_embed(session),
+            view=KasirView(self.session_id)
         )
+    except discord.HTTPException:
+        pass
+
+await interaction.response.send_message(
+    "✅ Produk ditambahkan ke preview kasir.",
+    ephemeral=True
+)
 
 
 class KasirCategorySelect(Select):
@@ -1061,11 +1072,14 @@ class StartKasirModal(Modal):
         }
 
         await interaction.response.send_message(
-            embed=build_kasir_preview_embed(kasir_sessions[session_id]),
-            view=KasirView(session_id),
-            ephemeral=True
-        )
+    embed=build_kasir_preview_embed(kasir_sessions[session_id]),
+    view=KasirView(session_id),
+    ephemeral=True
+)
 
+preview_msg = await interaction.original_response()
+kasir_sessions[session_id]["preview_message"] = preview_msg
+        )
 
 @bot.tree.command(name="kasir", description="Mulai sesi kasir dan isi rate harian")
 async def kasir(interaction: discord.Interaction):
