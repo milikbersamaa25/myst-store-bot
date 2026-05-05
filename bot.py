@@ -740,11 +740,10 @@ def build_kasir_preview_embed(session: dict) -> discord.Embed:
 def build_kasir_invoice_embed(session: dict) -> discord.Embed:
     lines = []
 
-    lines.append(f"● **Customer :** {session['customer']}")
-    lines.append(f"● **Tanggal :** {format_wib()}")
+    lines.append(f"* **Customer** : {session['customer']}")
+    lines.append(f"* **Tanggal **: {format_wib()}")
     lines.append("")
-    lines.append("━ ✦ **List Pembelian**")
-    lines.append("")
+    lines.append("**━.✦ List Pembelian**")
 
     total = 0
     for i, item in enumerate(session["items"], start=1):
@@ -758,7 +757,7 @@ def build_kasir_invoice_embed(session: dict) -> discord.Embed:
         )
 
     lines.append("")
-    lines.append("━ ✦ **Total Pembayaran**")
+    lines.append("**━.✦ Total Pembayaran**")
     lines.append(format_rupiah(total))
 
     return discord.Embed(
