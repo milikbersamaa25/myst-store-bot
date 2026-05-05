@@ -178,6 +178,34 @@ def find_product_by_name(name: str):
     return None
 
 
+def find_product_by_name_and_category(name: str, category: str):
+    name_key = normalize_key(name)
+    category_key = normalize_key(category)
+
+    for product in PRODUCTS:
+        if (
+            normalize_key(product.get("name", "")) == name_key
+            and normalize_key(product.get("category", "")) == category_key
+        ):
+            return product
+
+    return None
+
+
+def find_product_by_name_and_category(name: str, category: str):
+    name_key = normalize_key(name)
+    category_key = normalize_key(category)
+
+    for product in PRODUCTS:
+        if (
+            normalize_key(product.get("name", "")) == name_key
+            and normalize_key(product.get("category", "")) == category_key
+        ):
+            return product
+
+    return None
+
+
 def category_exists(name: str) -> bool:
     key = normalize_key(name)
     return any(normalize_key(cat) == key for cat in CATEGORIES)
@@ -1179,9 +1207,12 @@ async def produk_tambah(
         await interaction.response.send_message("Kategori belum ada. Tambahkan dulu dengan `/kategori_tambah`.", ephemeral=True)
         return
 
-    if find_product_by_name(nama):
-        await interaction.response.send_message("Produk dengan nama itu sudah ada.", ephemeral=True)
-        return
+    if find_product_by_name_and_category(nama, kategori_asli):
+    await interaction.response.send_message(
+        "Produk dengan nama itu sudah ada di kategori yang sama.",
+        ephemeral=True
+    )
+    return
 
     if is_lainnya_category(kategori_asli):
         if harga is None or harga <= 0:
@@ -1239,11 +1270,24 @@ async def produk_edit(
         return
 
     if nama_baru:
-        existing = find_product_by_name(nama_baru)
-        if existing and existing is not product:
-            await interaction.response.send_message("Nama produk baru sudah dipakai.", ephemeral=True)
+    target_category = kategori if kategori else product.get("category", "")
+
+    if kategori:
+        kategori_asli = get_category_name(kategori)
+        if not kategori_asli:
+            await interaction.response.send_message("Kategori tidak ditemukan.", ephemeral=True)
             return
-        product["name"] = nama_baru.strip()
+        target_category = kategori_asli
+
+    existing = find_product_by_name_and_category(nama_baru, target_category)
+    if existing and existing is not product:
+        await interaction.response.send_message(
+            "Nama produk baru sudah dipakai di kategori yang sama.",
+            ephemeral=True
+        )
+        return
+
+    product["name"] = nama_baru.strip()
 
     if kategori:
         kategori_asli = get_category_name(kategori)
