@@ -1147,14 +1147,12 @@ async def kategori_hapus(interaction: discord.Interaction, nama: str):
 
 @bot.tree.command(name="kategori_list", description="Lihat daftar kategori")
 async def kategori_list(interaction: discord.Interaction):
-    lines = []
-    for i, cat in enumerate(CATEGORIES, start=1):
-        if is_lainnya_category(cat):
-            lines.append(f"{i}. {cat} — harga rupiah langsung")
-        else:
-            lines.append(f"{i}. {cat} — pakai robux")
+    lines = [f"{i}. {cat}" for i, cat in enumerate(CATEGORIES, start=1)]
 
-    await interaction.response.send_message("**Daftar Kategori:**\n" + "\n".join(lines), ephemeral=True)
+    await interaction.response.send_message(
+        "**Daftar Kategori:**\n" + "\n".join(lines),
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="produk_tambah", description="Tambah produk ke katalog kasir")
@@ -1305,8 +1303,110 @@ async def produk_hapus(interaction: discord.Interaction, nama: str):
     await interaction.response.send_message(f"🗑️ Produk **{product['name']}** dihapus.", ephemeral=True)
 
 
-@bot.tree.command(name="produk_list", description="Lihat katalog produk kasir")
+class ProductListCategorySelect(Select):
+    def __init__(self):
+        options = []
+
+        used_categories = []
+        for cat in CATEGORIES:
+            if any(normalize_key(product.get("category", "")) == normalize_key(cat) for product in PRODUCTS):
+                used_categories.append(cat)
+
+        for cat in used_categories[:25]:
+            options.append(
+                discord.SelectOption(
+                    label=cat[:100],
+                    value=cat[:100]
+                )
+            )
+
+        if not options:
+            options.append(
+                discord.SelectOption(
+                    label="Belum ada kategori berisi produk",
+                    value="none"
+                )
+            )
+
+        super().__init__(
+            placeholder="Pilih kategori produk",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message(
+                "Belum ada produk di katalog.",
+                ephemeral=True
+            )
+            return
+
+        category = self.values[0]
+
+        products = [
+            product for product in PRODUCTS
+            if normalize_key(product.get("category", "")) == normalize_key(category)
+        ]
+
+        if not products:
+            await interaction.response.send_message(
+                "Kategori ini belum punya produk.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Katalog Produk - {category}",
+            color=COLOR
+        )
+
+        lines = []
+        for i, product in enumerate(products, start=1):
+            if is_lainnya_product(product):
+                lines.append(
+                    f"{i}. {product['name']} - {format_rupiah(int(product.get('price', 0)))}"
+                )
+            else:
+                lines.append(
+                    f"{i}. {product['name']} ({product['robux']} robux)"
+                )
+
+        embed.description = "\n".join(lines)
+
+        if is_lainnya_category(category):
+            embed.set_footer(text="Kategori Lainnya memakai harga rupiah langsung.")
+        else:
+            embed.set_footer(text="Kategori ini memakai robux dan dihitung dengan rate saat kasir.")
+
+        await interaction.response.edit_message(
+            content=None,
+            embed=embed,
+            view=None
+        )
+
+
+class ProductListCategoryView(View):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.add_item(ProductListCategorySelect())
+
+
+@bot.tree.command(name="produk_list", description="Lihat katalog produk kasir berdasarkan kategori")
 async def produk_list(interaction: discord.Interaction):
+    if not PRODUCTS:
+        await interaction.response.send_message(
+            "Belum ada katalog produk.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        "Pilih kategori produk:",
+        view=ProductListCategoryView(),
+        ephemeral=True
+    )
     if not PRODUCTS:
         await interaction.response.send_message("Belum ada katalog produk.", ephemeral=True)
         return
