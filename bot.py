@@ -336,7 +336,7 @@ def make_vip_embed(message_id: int | str):
     vip_list = session["list"]
 
     lines = []
-    title = "💎 VIP X8 LUCK BY MYST STORE 💎"
+    title = "💎 **VIP X8 LUCK BY MYST STORE** 💎"
 
     if info:
         lines.append("```")
@@ -350,7 +350,6 @@ def make_vip_embed(message_id: int | str):
     else:
         lines.append("_Belum diatur oleh admin_")
 
-    lines.append("")
     lines.append("**──.✦ LIST SLOT**")
 
     index = 1
