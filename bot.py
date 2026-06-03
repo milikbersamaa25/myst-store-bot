@@ -407,15 +407,45 @@ def build_custom_embed(data: dict) -> discord.Embed:
     body = data.get("body", "").strip()
     color = int(data.get("color", COLOR))
 
-    description = f"# {title}\n\n{body}"
-
     embed = discord.Embed(
-        description=description,
         color=color
     )
 
     image_url = data.get("image_url")
     image_position = data.get("image_position", "bawah")
+
+    parts = body.split("[section]")
+
+    intro = parts[0].strip()
+
+    if intro:
+        embed.description = f"# {title}\n\n{intro}"
+    else:
+        embed.description = f"# {title}"
+
+    for section in parts[1:]:
+        section = section.strip()
+
+        if not section:
+            continue
+
+        lines = section.splitlines()
+
+        if not lines:
+            continue
+
+        field_title = lines[0].strip()
+
+        field_content = "\n".join(lines[1:]).strip()
+
+        if not field_content:
+            field_content = "\u200b"
+
+        embed.add_field(
+            name=field_title,
+            value=field_content,
+            inline=False
+        )
 
     if image_url and image_position == "bawah":
         embed.set_image(url=image_url)
