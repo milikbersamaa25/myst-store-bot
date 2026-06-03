@@ -814,6 +814,69 @@ async def embed_list(interaction: discord.Interaction):
         ephemeral=True
     )
 
+
+@bot.tree.command(
+    name="embed_kirim_ulang",
+    description="Admin: kirim ulang embed yang sudah tersimpan"
+)
+@app_commands.describe(
+    nama_embed="Nama embed yang ingin dikirim ulang",
+    channel_tujuan="Channel tujuan pengiriman"
+)
+async def embed_kirim_ulang(
+    interaction: discord.Interaction,
+    nama_embed: str,
+    channel_tujuan: discord.TextChannel
+):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin yang bisa memakai command ini.",
+            ephemeral=True
+        )
+        return
+
+    embed_key = normalize_embed_name(nama_embed)
+
+    data = CUSTOM_EMBEDS.get(embed_key)
+
+    if not data:
+        await interaction.response.send_message(
+            f"❌ Embed **{embed_key}** tidak ditemukan.",
+            ephemeral=True
+        )
+        return
+
+    try:
+        embed = build_custom_embed(data)
+        top_image_embed = build_top_image_embed(data)
+        view = build_embed_buttons(
+            interaction,
+            data.get("buttons", "")
+        )
+
+        if top_image_embed:
+            msg = await channel_tujuan.send(
+                embeds=[top_image_embed, embed],
+                view=view
+            )
+        else:
+            msg = await channel_tujuan.send(
+                embed=embed,
+                view=view
+            )
+
+        await interaction.response.send_message(
+            f"✅ Embed **{embed_key}** berhasil dikirim ulang ke {channel_tujuan.mention}.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ Gagal mengirim ulang embed.\n{e}",
+            ephemeral=True
+        )
+
+
 # =========================================================
 # VIP SYSTEM
 # =========================================================
