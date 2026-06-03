@@ -329,9 +329,6 @@ async def adminhelp(interaction: discord.Interaction):
 # =========================================================
 # CUSTOM EMBED MAKER
 # =========================================================
-CUSTOM_EMBED_IMAGES = {}
-
-
 class CustomEmbedModal(Modal):
     def __init__(self, image_url: Optional[str] = None, image_position: str = "bawah"):
         super().__init__(title="Buat Embed Custom")
@@ -361,8 +358,8 @@ class CustomEmbedModal(Modal):
         )
 
         self.recommend_channel = TextInput(
-            label="Recommend Channel",
-            placeholder="Isi ID channel / mention channel / kosongkan",
+            label="Channel Tombol",
+            placeholder="Isi mention channel / ID channel / kosongkan",
             required=False,
             max_length=100
         )
@@ -382,7 +379,10 @@ class CustomEmbedModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_admin(interaction.user):
-            await interaction.response.send_message("❌ Hanya admin yang bisa membuat embed.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Hanya admin yang bisa membuat embed.",
+                ephemeral=True
+            )
             return
 
         warna_input = self.warna.value.strip()
@@ -401,20 +401,6 @@ class CustomEmbedModal(Modal):
 
         description = f"# {self.judul.value}\n\n{self.isi.value}"
 
-        recommend_input = self.recommend_channel.value.strip()
-        if recommend_input:
-            channel_id = (
-                recommend_input
-                .replace("<#", "")
-                .replace(">", "")
-                .strip()
-            )
-
-            if channel_id.isdigit():
-                description += f"\n\n━━━━━━━━━━━━━━━━━━━━\n\n**Recommended Channel:** <#{channel_id}>"
-            else:
-                description += f"\n\n━━━━━━━━━━━━━━━━━━━━\n\n**Recommended Channel:** {recommend_input}"
-
         embed = discord.Embed(
             description=description,
             color=warna
@@ -423,17 +409,52 @@ class CustomEmbedModal(Modal):
         if self.footer.value.strip():
             embed.set_footer(text=self.footer.value.strip())
 
-        # Gambar bawah: tampil full-width di bawah embed
         if self.image_url and self.image_position == "bawah":
             embed.set_image(url=self.image_url)
 
-        # Gambar atas: dibuat sebagai embed gambar terpisah sebelum embed utama
+        view = None
+        recommend_input = self.recommend_channel.value.strip()
+
+        if recommend_input:
+            channel_id = (
+                recommend_input
+                .replace("<#", "")
+                .replace(">", "")
+                .strip()
+            )
+
+            if not channel_id.isdigit():
+                await interaction.response.send_message(
+                    "❌ Channel tombol harus berupa mention channel atau ID channel.",
+                    ephemeral=True
+                )
+                return
+
+            channel_url = f"https://discord.com/channels/{interaction.guild.id}/{channel_id}"
+
+            view = View()
+            view.add_item(
+                Button(
+                    label="Order Ticket",
+                    emoji="🎟️",
+                    style=discord.ButtonStyle.link,
+                    url=channel_url
+                )
+            )
+
         if self.image_url and self.image_position == "atas":
             image_embed = discord.Embed(color=warna)
             image_embed.set_image(url=self.image_url)
-            await interaction.channel.send(embeds=[image_embed, embed])
+
+            await interaction.channel.send(
+                embeds=[image_embed, embed],
+                view=view
+            )
         else:
-            await interaction.channel.send(embed=embed)
+            await interaction.channel.send(
+                embed=embed,
+                view=view
+            )
 
         await interaction.response.send_message(
             "✅ Embed berhasil dibuat.",
@@ -443,7 +464,7 @@ class CustomEmbedModal(Modal):
 
 @bot.tree.command(name="embed", description="Admin: buat pesan embed custom")
 @app_commands.describe(
-    gambar="Opsional: upload JPG/PNG/GIF untuk embed",
+    gambar="Opsional: upload JPG/PNG/GIF/WEBP untuk embed",
     posisi_gambar="Letak gambar di embed"
 )
 @app_commands.choices(posisi_gambar=[
@@ -456,7 +477,10 @@ async def embed_command(
     posisi_gambar: Optional[app_commands.Choice[str]] = None
 ):
     if not is_admin(interaction.user):
-        await interaction.response.send_message("❌ Hanya admin yang bisa memakai command ini.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Hanya admin yang bisa memakai command ini.",
+            ephemeral=True
+        )
         return
 
     image_url = None
