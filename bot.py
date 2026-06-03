@@ -326,6 +326,90 @@ async def adminhelp(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+# =========================================================
+# CUSTOM EMBED MAKER
+# =========================================================
+class CustomEmbedModal(Modal):
+    def __init__(self):
+        super().__init__(title="Buat Embed Custom")
+
+        self.judul = TextInput(
+            label="Judul Embed",
+            placeholder="Contoh: 🎀 INFORMASI ORDER",
+            required=True,
+            max_length=256
+        )
+
+        self.isi = TextInput(
+            label="Isi Embed",
+            placeholder="Tulis isi pesan di sini. Bisa pakai emoji, enter, dan markdown.",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=4000
+        )
+
+        self.footer = TextInput(
+            label="Footer / Catatan Bawah",
+            placeholder="Kosongkan jika tidak perlu",
+            required=False,
+            max_length=2048
+        )
+
+        self.warna = TextInput(
+            label="Warna Embed",
+            placeholder="Contoh: #00F8FF / #ffb6c1 / kosongkan default",
+            required=False,
+            max_length=7
+        )
+
+        self.add_item(self.judul)
+        self.add_item(self.isi)
+        self.add_item(self.footer)
+        self.add_item(self.warna)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not is_admin(interaction.user):
+            await interaction.response.send_message("❌ Hanya admin yang bisa membuat embed.", ephemeral=True)
+            return
+
+        warna_input = self.warna.value.strip()
+
+        if warna_input:
+            try:
+                warna = int(warna_input.replace("#", ""), 16)
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ Format warna salah. Gunakan contoh: `#00F8FF`",
+                    ephemeral=True
+                )
+                return
+        else:
+            warna = COLOR
+
+        embed = discord.Embed(
+            title=self.judul.value,
+            description=self.isi.value,
+            color=warna
+        )
+
+        if self.footer.value.strip():
+            embed.set_footer(text=self.footer.value.strip())
+
+        await interaction.channel.send(embed=embed)
+
+        await interaction.response.send_message(
+            "✅ Embed berhasil dibuat.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="embed", description="Admin: buat pesan embed custom")
+async def embed_command(interaction: discord.Interaction):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message("❌ Hanya admin yang bisa memakai command ini.", ephemeral=True)
+        return
+
+    await interaction.response.send_modal(CustomEmbedModal())
 
 # =========================================================
 # VIP SYSTEM
