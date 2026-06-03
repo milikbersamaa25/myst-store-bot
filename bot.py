@@ -31,6 +31,7 @@ VIP_FILE = BASE_DIR / "vip_sessions.json"
 PRODUCT_FILE = BASE_DIR / "cashier_products.json"
 CATEGORY_FILE = BASE_DIR / "cashier_categories.json"
 CUSTOM_PRICELIST_FILE = BASE_DIR / "custom_pricelists.json"
+CUSTOM_EMBED_FILE = BASE_DIR / "custom_embeds.json"
 
 CUSTOM_PRICELIST_DIR = BASE_DIR / "pricelist_media"
 CUSTOM_PRICELIST_DIR.mkdir(exist_ok=True)
@@ -130,6 +131,7 @@ def parse_slot_numbers(text: str) -> list[int]:
 PRODUCTS = load_json(PRODUCT_FILE, [])
 CATEGORIES = load_json(CATEGORY_FILE, [])
 CUSTOM_PRICELISTS = load_json(CUSTOM_PRICELIST_FILE, {})
+CUSTOM_EMBEDS = load_json(CUSTOM_EMBED_FILE, {})
 vip_sessions = load_json(VIP_FILE, {})
 
 # Kategori Lainnya wajib selalu ada.
@@ -156,6 +158,10 @@ def save_categories():
 
 def save_pricelists():
     save_json(CUSTOM_PRICELIST_FILE, CUSTOM_PRICELISTS)
+
+
+def save_custom_embeds():
+    save_json(CUSTOM_EMBED_FILE, CUSTOM_EMBEDS)
 
 
 def save_vip_sessions():
@@ -329,15 +335,130 @@ async def adminhelp(interaction: discord.Interaction):
 # =========================================================
 # CUSTOM EMBED MAKER
 # =========================================================
+def normalize_embed_name(name: str) -> str:
+    return re.sub(r"\s+", "_", name.strip().lower())
+
+
+def parse_embed_color(color_text: str) -> int:
+    color_text = color_text.strip()
+
+    if not color_text:
+        return COLOR
+
+    if color_text.startswith("#"):
+        color_text = color_text[1:]
+
+    return int(color_text, 16)
+
+
+def build_embed_buttons(interaction: discord.Interaction, buttons_text: str) -> Optional[View]:
+    buttons_text = buttons_text.strip()
+
+    if not buttons_text:
+        return None
+
+    raw_buttons = [item.strip() for item in buttons_text.split(",") if item.strip()]
+
+    if len(raw_buttons) > 5:
+        raise ValueError("Maksimal 5 button dalam 1 embed.")
+
+    view = View(timeout=None)
+
+    for raw_button in raw_buttons:
+        if "|" not in raw_button:
+            raise ValueError(
+                "Format button salah. Gunakan format: Nama Button|ID Channel"
+            )
+
+        label, channel_raw = raw_button.split("|", 1)
+        label = label.strip()
+
+        channel_id = (
+            channel_raw
+            .replace("<#", "")
+            .replace(">", "")
+            .strip()
+        )
+
+        if not label:
+            raise ValueError("Nama button tidak boleh kosong.")
+
+        if len(label) > 80:
+            raise ValueError("Nama button maksimal 80 karakter.")
+
+        if not channel_id.isdigit():
+            raise ValueError("Tujuan button harus berupa mention channel atau ID channel.")
+
+        channel_url = f"https://discord.com/channels/{interaction.guild.id}/{channel_id}"
+
+        view.add_item(
+            Button(
+                label=label,
+                style=discord.ButtonStyle.link,
+                url=channel_url
+            )
+        )
+
+    return view
+
+
+def build_custom_embed(data: dict) -> discord.Embed:
+    title = data.get("title", "").strip()
+    body = data.get("body", "").strip()
+    color = int(data.get("color", COLOR))
+
+    description = f"# {title}\n\n{body}"
+
+    embed = discord.Embed(
+        description=description,
+        color=color
+    )
+
+    image_url = data.get("image_url")
+    image_position = data.get("image_position", "bawah")
+
+    if image_url and image_position == "bawah":
+        embed.set_image(url=image_url)
+
+    return embed
+
+
+def build_top_image_embed(data: dict) -> Optional[discord.Embed]:
+    image_url = data.get("image_url")
+    image_position = data.get("image_position", "bawah")
+    color = int(data.get("color", COLOR))
+
+    if image_url and image_position == "atas":
+        image_embed = discord.Embed(color=color)
+        image_embed.set_image(url=image_url)
+        return image_embed
+
+    return None
+
+
 class CustomEmbedModal(Modal):
-    def __init__(self, image_url: Optional[str] = None, image_position: str = "bawah"):
-        super().__init__(title="Buat Embed Custom")
+    def __init__(
+        self,
+        mode: str,
+        embed_key: str,
+        target_channel_id: int,
+        image_url: Optional[str] = None,
+        image_position: str = "bawah",
+        old_data: Optional[dict] = None
+    ):
+        super().__init__(title="Buat/Edit Embed Custom")
+
+        self.mode = mode
+        self.embed_key = embed_key
+        self.target_channel_id = target_channel_id
         self.image_url = image_url
         self.image_position = image_position
+        self.old_data = old_data or {}
 
         self.judul = TextInput(
             label="Judul Embed",
             placeholder="Contoh: INFORMASI ORDER",
+            default=self.old_data.get("title", ""),
             required=True,
             max_length=256
         )
@@ -345,140 +466,191 @@ class CustomEmbedModal(Modal):
         self.isi = TextInput(
             label="Isi Embed",
             placeholder="Bisa pakai emoji, enter, markdown, ##, ###, dll.",
+            default=self.old_data.get("body", ""),
             style=discord.TextStyle.paragraph,
             required=True,
             max_length=4000
         )
 
-        self.footer = TextInput(
-            label="Footer / Footnote",
-            placeholder="Kosongkan jika tidak perlu",
+        self.buttons = TextInput(
+            label="Button",
+            placeholder="Contoh: Order Ticket|123456789, Vouch|987654321",
+            default=self.old_data.get("buttons", ""),
+            style=discord.TextStyle.paragraph,
             required=False,
-            max_length=2048
-        )
-
-        self.recommend_channel = TextInput(
-            label="Channel Tombol",
-            placeholder="Isi mention channel / ID channel / kosongkan",
-            required=False,
-            max_length=100
+            max_length=1000
         )
 
         self.warna = TextInput(
             label="Warna Embed",
-            placeholder="#2B2D31 agar garis kiri tersamarkan",
+            placeholder="Default tosca. Samarkan garis kiri: #2B2D31",
+            default=self.old_data.get("color_text", ""),
             required=False,
             max_length=7
         )
 
         self.add_item(self.judul)
         self.add_item(self.isi)
-        self.add_item(self.footer)
-        self.add_item(self.recommend_channel)
+        self.add_item(self.buttons)
         self.add_item(self.warna)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_admin(interaction.user):
             await interaction.response.send_message(
-                "❌ Hanya admin yang bisa membuat embed.",
+                "❌ Hanya admin yang bisa membuat/edit embed.",
                 ephemeral=True
             )
             return
 
-        warna_input = self.warna.value.strip()
+        try:
+            warna = parse_embed_color(self.warna.value)
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Format warna salah. Gunakan contoh: `#00F8FF` atau `#2B2D31`.",
+                ephemeral=True
+            )
+            return
 
-        if warna_input:
+        try:
+            view = build_embed_buttons(interaction, self.buttons.value)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
+
+        final_image_url = self.image_url
+        final_image_position = self.image_position
+
+        if self.mode == "edit":
+            if final_image_url is None:
+                final_image_url = self.old_data.get("image_url")
+                final_image_position = self.old_data.get("image_position", "bawah")
+
+        data = {
+            "title": self.judul.value.strip(),
+            "body": self.isi.value.strip(),
+            "buttons": self.buttons.value.strip(),
+            "color": warna,
+            "color_text": self.warna.value.strip(),
+            "image_url": final_image_url,
+            "image_position": final_image_position,
+            "channel_id": self.target_channel_id
+        }
+
+        embed = build_custom_embed(data)
+        top_image_embed = build_top_image_embed(data)
+
+        if self.mode == "buat":
+            target_channel = interaction.guild.get_channel(self.target_channel_id)
+
+            if not target_channel:
+                await interaction.response.send_message(
+                    "❌ Channel tujuan tidak ditemukan.",
+                    ephemeral=True
+                )
+                return
+
+            if top_image_embed:
+                msg = await target_channel.send(
+                    embeds=[top_image_embed, embed],
+                    view=view
+                )
+            else:
+                msg = await target_channel.send(
+                    embed=embed,
+                    view=view
+                )
+
+            data["message_id"] = msg.id
+            CUSTOM_EMBEDS[self.embed_key] = data
+            save_custom_embeds()
+
+            await interaction.response.send_message(
+                f"✅ Embed **{self.embed_key}** berhasil dibuat di {target_channel.mention}.",
+                ephemeral=True
+            )
+            return
+
+        if self.mode == "edit":
+            old_saved = CUSTOM_EMBEDS.get(self.embed_key)
+
+            if not old_saved:
+                await interaction.response.send_message(
+                    "❌ Data embed tidak ditemukan.",
+                    ephemeral=True
+                )
+                return
+
+            channel = interaction.guild.get_channel(int(old_saved["channel_id"]))
+
+            if not channel:
+                await interaction.response.send_message(
+                    "❌ Channel embed lama tidak ditemukan.",
+                    ephemeral=True
+                )
+                return
+
             try:
-                warna = int(warna_input.replace("#", ""), 16)
-            except ValueError:
+                msg = await channel.fetch_message(int(old_saved["message_id"]))
+            except discord.NotFound:
                 await interaction.response.send_message(
-                    "❌ Format warna salah. Gunakan contoh: `#2B2D31`",
-                    ephemeral=True
-                )
-                return
-        else:
-            warna = 0x2B2D31
-
-        description = f"# {self.judul.value}\n\n{self.isi.value}"
-
-        embed = discord.Embed(
-            description=description,
-            color=warna
-        )
-
-        if self.footer.value.strip():
-            embed.set_footer(text=self.footer.value.strip())
-
-        if self.image_url and self.image_position == "bawah":
-            embed.set_image(url=self.image_url)
-
-        view = None
-        recommend_input = self.recommend_channel.value.strip()
-
-        if recommend_input:
-            channel_id = (
-                recommend_input
-                .replace("<#", "")
-                .replace(">", "")
-                .strip()
-            )
-
-            if not channel_id.isdigit():
-                await interaction.response.send_message(
-                    "❌ Channel tombol harus berupa mention channel atau ID channel.",
+                    "❌ Pesan embed lama tidak ditemukan. Mungkin sudah terhapus.",
                     ephemeral=True
                 )
                 return
 
-            channel_url = f"https://discord.com/channels/{interaction.guild.id}/{channel_id}"
-
-            view = View()
-            view.add_item(
-                Button(
-                    label="Order Ticket",
-                    emoji="🎟️",
-                    style=discord.ButtonStyle.link,
-                    url=channel_url
+            if top_image_embed:
+                await msg.edit(
+                    embeds=[top_image_embed, embed],
+                    view=view
                 )
+            else:
+                await msg.edit(
+                    embeds=[embed],
+                    view=view
+                )
+
+            data["message_id"] = old_saved["message_id"]
+            data["channel_id"] = old_saved["channel_id"]
+
+            CUSTOM_EMBEDS[self.embed_key] = data
+            save_custom_embeds()
+
+            await interaction.response.send_message(
+                f"✅ Embed **{self.embed_key}** berhasil diedit.",
+                ephemeral=True
             )
 
-        if self.image_url and self.image_position == "atas":
-            image_embed = discord.Embed(color=warna)
-            image_embed.set_image(url=self.image_url)
 
-            await interaction.channel.send(
-                embeds=[image_embed, embed],
-                view=view
-            )
-        else:
-            await interaction.channel.send(
-                embed=embed,
-                view=view
-            )
-
-        await interaction.response.send_message(
-            "✅ Embed berhasil dibuat.",
-            ephemeral=True
-        )
-
-
-@bot.tree.command(name="embed", description="Admin: buat pesan embed custom")
+@bot.tree.command(name="embed_buat", description="Admin: buat embed custom baru")
 @app_commands.describe(
-    gambar="Opsional: upload JPG/PNG/GIF/WEBP untuk embed",
-    posisi_gambar="Letak gambar di embed"
+    nama_embed="Nama unik embed, contoh: pricelist_robux",
+    channel_tujuan="Channel tempat embed dikirim",
+    gambar="Opsional: upload JPG/PNG/GIF/WEBP",
+    posisi_gambar="Letak gambar"
 )
 @app_commands.choices(posisi_gambar=[
     app_commands.Choice(name="Atas", value="atas"),
     app_commands.Choice(name="Bawah", value="bawah"),
 ])
-async def embed_command(
+async def embed_buat(
     interaction: discord.Interaction,
+    nama_embed: str,
+    channel_tujuan: discord.TextChannel,
     gambar: Optional[discord.Attachment] = None,
     posisi_gambar: Optional[app_commands.Choice[str]] = None
 ):
     if not is_admin(interaction.user):
         await interaction.response.send_message(
             "❌ Hanya admin yang bisa memakai command ini.",
+            ephemeral=True
+        )
+        return
+
+    embed_key = normalize_embed_name(nama_embed)
+
+    if embed_key in CUSTOM_EMBEDS:
+        await interaction.response.send_message(
+            f"❌ Nama embed **{embed_key}** sudah ada. Gunakan `/embed_edit` untuk mengubahnya.",
             ephemeral=True
         )
         return
@@ -501,9 +673,145 @@ async def embed_command(
 
     await interaction.response.send_modal(
         CustomEmbedModal(
+            mode="buat",
+            embed_key=embed_key,
+            target_channel_id=channel_tujuan.id,
             image_url=image_url,
             image_position=image_position
         )
+    )
+
+
+@bot.tree.command(name="embed_edit", description="Admin: edit embed custom yang sudah dibuat")
+@app_commands.describe(
+    nama_embed="Nama embed yang ingin diedit",
+    gambar="Opsional: upload gambar baru. Kosongkan jika tidak ingin mengganti gambar.",
+    posisi_gambar="Letak gambar baru"
+)
+@app_commands.choices(posisi_gambar=[
+    app_commands.Choice(name="Atas", value="atas"),
+    app_commands.Choice(name="Bawah", value="bawah"),
+])
+async def embed_edit(
+    interaction: discord.Interaction,
+    nama_embed: str,
+    gambar: Optional[discord.Attachment] = None,
+    posisi_gambar: Optional[app_commands.Choice[str]] = None
+):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin yang bisa memakai command ini.",
+            ephemeral=True
+        )
+        return
+
+    embed_key = normalize_embed_name(nama_embed)
+
+    old_data = CUSTOM_EMBEDS.get(embed_key)
+
+    if not old_data:
+        await interaction.response.send_message(
+            f"❌ Embed **{embed_key}** tidak ditemukan.",
+            ephemeral=True
+        )
+        return
+
+    image_url = None
+    image_position = posisi_gambar.value if posisi_gambar else old_data.get("image_position", "bawah")
+
+    if gambar:
+        allowed_ext = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        filename = gambar.filename.lower()
+
+        if not any(filename.endswith(ext) for ext in allowed_ext):
+            await interaction.response.send_message(
+                "❌ Format gambar harus JPG, PNG, GIF, atau WEBP.",
+                ephemeral=True
+            )
+            return
+
+        image_url = gambar.url
+
+    await interaction.response.send_modal(
+        CustomEmbedModal(
+            mode="edit",
+            embed_key=embed_key,
+            target_channel_id=int(old_data["channel_id"]),
+            image_url=image_url,
+            image_position=image_position,
+            old_data=old_data
+        )
+    )
+
+
+@bot.tree.command(name="embed_hapus", description="Admin: hapus embed custom")
+@app_commands.describe(
+    nama_embed="Nama embed yang ingin dihapus"
+)
+async def embed_hapus(
+    interaction: discord.Interaction,
+    nama_embed: str
+):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin yang bisa memakai command ini.",
+            ephemeral=True
+        )
+        return
+
+    embed_key = normalize_embed_name(nama_embed)
+    data = CUSTOM_EMBEDS.get(embed_key)
+
+    if not data:
+        await interaction.response.send_message(
+            f"❌ Embed **{embed_key}** tidak ditemukan.",
+            ephemeral=True
+        )
+        return
+
+    channel = interaction.guild.get_channel(int(data["channel_id"]))
+
+    if channel:
+        try:
+            msg = await channel.fetch_message(int(data["message_id"]))
+            await msg.delete()
+        except discord.NotFound:
+            pass
+
+    CUSTOM_EMBEDS.pop(embed_key, None)
+    save_custom_embeds()
+
+    await interaction.response.send_message(
+        f"✅ Embed **{embed_key}** berhasil dihapus.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="embed_list", description="Admin: lihat daftar embed custom")
+async def embed_list(interaction: discord.Interaction):
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin yang bisa memakai command ini.",
+            ephemeral=True
+        )
+        return
+
+    if not CUSTOM_EMBEDS:
+        await interaction.response.send_message(
+            "Belum ada embed custom yang tersimpan.",
+            ephemeral=True
+        )
+        return
+
+    lines = []
+    for key, data in CUSTOM_EMBEDS.items():
+        channel_id = data.get("channel_id")
+        message_id = data.get("message_id")
+        lines.append(f"• **{key}** → <#{channel_id}> | `{message_id}`")
+
+    await interaction.response.send_message(
+        "\n".join(lines),
+        ephemeral=True
     )
 
 # =========================================================
