@@ -329,35 +329,47 @@ async def adminhelp(interaction: discord.Interaction):
 # =========================================================
 # CUSTOM EMBED MAKER
 # =========================================================
+CUSTOM_EMBED_IMAGES = {}
+
+
 class CustomEmbedModal(Modal):
-    def __init__(self):
+    def __init__(self, image_url: Optional[str] = None, image_position: str = "bawah"):
         super().__init__(title="Buat Embed Custom")
+        self.image_url = image_url
+        self.image_position = image_position
 
         self.judul = TextInput(
             label="Judul Embed",
-            placeholder="Contoh: 🎀 INFORMASI ORDER",
+            placeholder="Contoh: INFORMASI ORDER",
             required=True,
             max_length=256
         )
 
         self.isi = TextInput(
             label="Isi Embed",
-            placeholder="Tulis isi pesan di sini. Bisa pakai emoji, enter, dan markdown.",
+            placeholder="Bisa pakai emoji, enter, markdown, ##, ###, dll.",
             style=discord.TextStyle.paragraph,
             required=True,
             max_length=4000
         )
 
         self.footer = TextInput(
-            label="Footer / Catatan Bawah",
+            label="Footer / Footnote",
             placeholder="Kosongkan jika tidak perlu",
             required=False,
             max_length=2048
         )
 
+        self.recommend_channel = TextInput(
+            label="Recommend Channel",
+            placeholder="Isi ID channel / mention channel / kosongkan",
+            required=False,
+            max_length=100
+        )
+
         self.warna = TextInput(
             label="Warna Embed",
-            placeholder="Contoh: #00F8FF / #ffb6c1 / kosongkan default",
+            placeholder="#2B2D31 agar garis kiri tersamarkan",
             required=False,
             max_length=7
         )
@@ -365,6 +377,7 @@ class CustomEmbedModal(Modal):
         self.add_item(self.judul)
         self.add_item(self.isi)
         self.add_item(self.footer)
+        self.add_item(self.recommend_channel)
         self.add_item(self.warna)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -379,23 +392,48 @@ class CustomEmbedModal(Modal):
                 warna = int(warna_input.replace("#", ""), 16)
             except ValueError:
                 await interaction.response.send_message(
-                    "❌ Format warna salah. Gunakan contoh: `#00F8FF`",
+                    "❌ Format warna salah. Gunakan contoh: `#2B2D31`",
                     ephemeral=True
                 )
                 return
         else:
-            warna = COLOR
+            warna = 0x2B2D31
+
+        description = f"# {self.judul.value}\n\n{self.isi.value}"
+
+        recommend_input = self.recommend_channel.value.strip()
+        if recommend_input:
+            channel_id = (
+                recommend_input
+                .replace("<#", "")
+                .replace(">", "")
+                .strip()
+            )
+
+            if channel_id.isdigit():
+                description += f"\n\n━━━━━━━━━━━━━━━━━━━━\n\n**Recommended Channel:** <#{channel_id}>"
+            else:
+                description += f"\n\n━━━━━━━━━━━━━━━━━━━━\n\n**Recommended Channel:** {recommend_input}"
 
         embed = discord.Embed(
-            title=self.judul.value,
-            description=self.isi.value,
+            description=description,
             color=warna
         )
 
         if self.footer.value.strip():
             embed.set_footer(text=self.footer.value.strip())
 
-        await interaction.channel.send(embed=embed)
+        # Gambar bawah: tampil full-width di bawah embed
+        if self.image_url and self.image_position == "bawah":
+            embed.set_image(url=self.image_url)
+
+        # Gambar atas: dibuat sebagai embed gambar terpisah sebelum embed utama
+        if self.image_url and self.image_position == "atas":
+            image_embed = discord.Embed(color=warna)
+            image_embed.set_image(url=self.image_url)
+            await interaction.channel.send(embeds=[image_embed, embed])
+        else:
+            await interaction.channel.send(embed=embed)
 
         await interaction.response.send_message(
             "✅ Embed berhasil dibuat.",
@@ -404,12 +442,45 @@ class CustomEmbedModal(Modal):
 
 
 @bot.tree.command(name="embed", description="Admin: buat pesan embed custom")
-async def embed_command(interaction: discord.Interaction):
+@app_commands.describe(
+    gambar="Opsional: upload JPG/PNG/GIF untuk embed",
+    posisi_gambar="Letak gambar di embed"
+)
+@app_commands.choices(posisi_gambar=[
+    app_commands.Choice(name="Atas", value="atas"),
+    app_commands.Choice(name="Bawah", value="bawah"),
+])
+async def embed_command(
+    interaction: discord.Interaction,
+    gambar: Optional[discord.Attachment] = None,
+    posisi_gambar: Optional[app_commands.Choice[str]] = None
+):
     if not is_admin(interaction.user):
         await interaction.response.send_message("❌ Hanya admin yang bisa memakai command ini.", ephemeral=True)
         return
 
-    await interaction.response.send_modal(CustomEmbedModal())
+    image_url = None
+    image_position = posisi_gambar.value if posisi_gambar else "bawah"
+
+    if gambar:
+        allowed_ext = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        filename = gambar.filename.lower()
+
+        if not any(filename.endswith(ext) for ext in allowed_ext):
+            await interaction.response.send_message(
+                "❌ Format gambar harus JPG, PNG, GIF, atau WEBP.",
+                ephemeral=True
+            )
+            return
+
+        image_url = gambar.url
+
+    await interaction.response.send_modal(
+        CustomEmbedModal(
+            image_url=image_url,
+            image_position=image_position
+        )
+    )
 
 # =========================================================
 # VIP SYSTEM
