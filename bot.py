@@ -1015,12 +1015,10 @@ async def listpricelist(
 ):
 
     if not is_admin(interaction.user):
-
         await interaction.response.send_message(
             "❌ Hanya admin.",
             ephemeral=True
         )
-
         return
 
 
@@ -1028,15 +1026,15 @@ async def listpricelist(
         description=(
             "## <:Gifting_Hero:1527270420921716807> "
             "PRICELIST GIFT IN GAME BY MYST STORE "
-            "<:PixelSparkle:1511778680874209402>"
-        ),
-        description=(
+            "<:PixelSparkle:1511778680874209402>\n\n"
+
             "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
 
             "🛒 **Pilih Game Favoritmu!**\n"
             "*Gunakan menu di bawah untuk melihat daftar harga gift in game terbaru.*\n\n"
 
             "<:playing:1511777875143950487> **__Tersedia :__**\n"
+
             "<:pink_arrow:1511781018028343447> ⚔️ • Blade Ball\n"
             "<:pink_arrow:1511781018028343447> 🏡 • Bloxburg\n"
             "<:pink_arrow:1511781018028343447> 🚗 • CDID\n"
