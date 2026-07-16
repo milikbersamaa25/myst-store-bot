@@ -1028,7 +1028,7 @@ async def listpricelist(
             "PRICELIST GIFT IN GAME BY MYST STORE "
             "<:PixelSparkle:1511778680874209402>\n\n"
 
-            "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
+            "**⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆**\n\n"
 
             "🛒 **Pilih Game Favoritmu!**\n"
             "*Gunakan menu di bawah untuk melihat daftar harga gift in game terbaru.*\n\n"
@@ -1045,12 +1045,12 @@ async def listpricelist(
             "🏴　•　Sailor Piece\n"
             "🌾　•　Sawah Indo\n"
             "<:sr_tangleslime:1511973089762873377>　•　Slime Rng\n\n"
-            "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
+            "**⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆**\n\n"
 
             "> -# <:foxnote:1511780221030895678> **Notes :**\n"
-            "> -# ──.✦　Harga dan item terupdate!\n"
-            "> -# ──.✦　Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
-            "> -# ──.✦　Feel free untuk request map yang belum tersedia."
+            "> -# ──.✦ Harga dan item terupdate!\n"
+            "> -# ──.✦ Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
+            "> -# ──.✦ Feel free untuk request map yang belum tersedia."
         ),
         color=COLOR
     )
