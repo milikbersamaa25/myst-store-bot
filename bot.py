@@ -1035,23 +1035,22 @@ async def listpricelist(
 
             "<:playing:1511777875143950487> **__Tersedia :__**\n"
 
-            "<:pink_arrow:1511781018028343447> ⚔️　•　Blade Ball\n"
-            "<:pink_arrow:1511781018028343447> 🏡　•　Bloxburg\n"
-            "<:pink_arrow:1511781018028343447> 🚗　•　CDID\n"
-            "<:pink_arrow:1511781018028343447> 🎣　•　Fisch\n"
-            "<:pink_arrow:1511781018028343447> 🐟　•　Fish It\n"
-            "<:pink_arrow:1511781018028343447> 🌱　•　Grow A Garden\n"
-            "<:pink_arrow:1511781018028343447> 🧌　•　Hunty Zombie\n"
-            "<:pink_arrow:1511781018028343447> 🏴　•　Sailor Piece\n"
-            "<:pink_arrow:1511781018028343447> 🌾　•　Sawah Indo\n"
-            "<:pink_arrow:1511781018028343447> <:sr_tangleslime:1511973089762873377>　•　Slime Rng\n\n"
-
+            "⚔️　•　Blade Ball\n"
+            "🏡　•　Bloxburg\n"
+            "🚗　•　CDID\n"
+            "🎣　•　Fisch\n"
+            "🐟　•　Fish It\n"
+            "🌱　•　Grow A Garden\n"
+            "🧌　•　Hunty Zombie\n"
+            "🏴　•　Sailor Piece\n"
+            "🌾　•　Sawah Indo\n"
+            "<:sr_tangleslime:1511973089762873377>　•　Slime Rng\n\n"
             "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
 
             "> -# <:foxnote:1511780221030895678> **Notes :**\n"
-            "> -# 1. Harga dan item terupdate!\n"
-            "> -# 2. Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
-            "> -# 3. Feel free untuk request map yang belum tersedia."
+            "> -# ──.✦　Harga dan item terupdate!\n"
+            "> -# ──.✦　Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
+            "> -# ──.✦　Feel free untuk request map yang belum tersedia."
         ),
         color=COLOR
     )
