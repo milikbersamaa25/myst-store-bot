@@ -1057,11 +1057,6 @@ embed = discord.Embed(
 )
 
 
-    embed.set_footer(
-        text="MYST STORE"
-    )
-
-
     await interaction.channel.send(
         embed=embed,
         view=GamePricelistView()
