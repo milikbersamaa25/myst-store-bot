@@ -1044,7 +1044,7 @@ async def listpricelist(
             "<:pink_arrow:1511781018028343447> 🧌　•　Hunty Zombie\n"
             "<:pink_arrow:1511781018028343447> 🏴　•　Sailor Piece\n"
             "<:pink_arrow:1511781018028343447> 🌾　•　Sawah Indo\n"
-            "<:pink_arrow:1511781018028343447> <:sr_tangleslime:1511973089762873377> • Slime Rng\n\n"
+            "<:pink_arrow:1511781018028343447> <:sr_tangleslime:1511973089762873377>　•　Slime Rng\n\n"
 
             "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
 
