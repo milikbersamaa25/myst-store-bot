@@ -1005,6 +1005,7 @@ class GamePricelistView(View):
             GamePricelistSelect()
         )
 
+
 @bot.tree.command(
     name="listpricelist",
     description="Admin membuat panel pricelist"
@@ -1019,6 +1020,30 @@ async def listpricelist(
             ephemeral=True
         )
         return
+
+
+    embed = discord.Embed(
+        title="...",
+        description="...",
+        color=COLOR
+    )
+
+
+    embed.set_footer(
+        text="MYST STORE"
+    )
+
+
+    await interaction.channel.send(
+        embed=embed,
+        view=GamePricelistView()
+    )
+
+
+    await interaction.response.send_message(
+        "✅ Panel berhasil dibuat.",
+        ephemeral=True
+    )
 
 
 embed = discord.Embed(
@@ -1067,6 +1092,7 @@ embed = discord.Embed(
         "✅ Panel berhasil dibuat.",
         ephemeral=True
     )
+
 
 # =========================================================
 # ADD GAME PRICELIST
