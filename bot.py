@@ -969,28 +969,35 @@ class GamePricelistSelect(Select):
             return
 
 
-        try:
-            channel = interaction.guild.get_channel(
-                int(data["channel_id"])
-            )
+try:
 
-            msg = await channel.fetch_message(
-                int(data["message_id"])
-            )
+    channel = interaction.guild.get_channel(
+        int(data["channel_id"])
+    )
+
+    embeds = []
+
+    for message_id in data["message_ids"]:
+
+        msg = await channel.fetch_message(
+            int(message_id)
+        )
+
+        embeds.extend(msg.embeds)
 
 
-            await interaction.response.send_message(
-                embeds=msg.embeds,
-                ephemeral=True
-            )
+    await interaction.response.send_message(
+        embeds=embeds[:10],
+        ephemeral=True
+    )
 
 
-        except Exception as e:
+except Exception as e:
 
-            await interaction.response.send_message(
-                f"❌ Error mengambil pricelist:\n{e}",
-                ephemeral=True
-            )
+    await interaction.response.send_message(
+        f"❌ Error mengambil pricelist:\n{e}",
+        ephemeral=True
+    )
 
 
 class GamePricelistView(View):
@@ -1074,18 +1081,18 @@ async def listpricelist(
 
 @bot.tree.command(
     name="pricelist_add",
-    description="Admin menambahkan game ke dropdown pricelist"
+    description="Admin menambahkan game pricelist"
 )
 @app_commands.describe(
     nama_game="Nama game",
     emoji="Emoji game",
-    message_link="Link message embed pricelist admin"
+    message_ids="ID message embed, pisahkan dengan koma"
 )
 async def pricelist_add(
     interaction: discord.Interaction,
     nama_game: str,
     emoji: str,
-    message_link: str
+    message_ids: str
 ):
 
     if not is_admin(interaction.user):
@@ -1096,34 +1103,22 @@ async def pricelist_add(
         return
 
 
-    match = re.search(
-        r"/channels/(\d+)/(\d+)/(\d+)",
-        message_link
-    )
+    ids = [
+        x.strip()
+        for x in message_ids.split(",")
+        if x.strip()
+    ]
 
 
-    if not match:
-        await interaction.response.send_message(
-            "❌ Link message Discord tidak valid.",
-            ephemeral=True
-        )
-        return
+    GAME_PRICELISTS[
+        normalize_key(nama_game).replace(" ", "_")
+    ] = {
 
+        "name": nama_game,
 
-    guild_id = match.group(1)
-    channel_id = match.group(2)
-    message_id = match.group(3)
+        "emoji": emoji,
 
-
-    key = normalize_key(nama_game).replace(" ", "_")
-
-
-    GAME_PRICELISTS[key] = {
-        "name": nama_game.strip(),
-        "emoji": emoji.strip(),
-        "guild_id": guild_id,
-        "channel_id": channel_id,
-        "message_id": message_id
+        "message_ids": ids
     }
 
 
@@ -1131,7 +1126,7 @@ async def pricelist_add(
 
 
     await interaction.response.send_message(
-        f"✅ Pricelist **{nama_game}** berhasil ditambahkan.",
+        f"✅ Pricelist **{nama_game}** disimpan dengan {len(ids)} embed.",
         ephemeral=True
     )
 
