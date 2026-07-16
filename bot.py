@@ -1015,25 +1015,50 @@ async def listpricelist(
 ):
 
     if not is_admin(interaction.user):
+
         await interaction.response.send_message(
             "❌ Hanya admin.",
             ephemeral=True
         )
+
         return
 
 
     embed = discord.Embed(
-        title="...",
-        description="...",
+        title=(
+            "<:Gifting_Hero:1527270420921716807> "
+            "PRICELIST GIFT IN GAME BY MYST STORE "
+            "<:PixelSparkle:1511778680874209402>"
+        ),
+        description=(
+            "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
+
+            "🛒 **Pilih Game Favoritmu!**\n"
+            "*Gunakan menu di bawah untuk melihat daftar harga gift in game terbaru.*\n\n"
+
+            "<:playing:1511777875143950487> **__Tersedia :__**\n"
+            "<:pink_arrow:1511781018028343447> ⚔️ • Blade Ball\n"
+            "<:pink_arrow:1511781018028343447> 🏡 • Bloxburg\n"
+            "<:pink_arrow:1511781018028343447> 🚗 • CDID\n"
+            "<:pink_arrow:1511781018028343447> 🎣 • Fisch\n"
+            "<:pink_arrow:1511781018028343447> 🐟 • Fish It\n"
+            "<:pink_arrow:1511781018028343447> 🌱 • Grow A Garden\n"
+            "<:pink_arrow:1511781018028343447> 🧌 • Hunty Zombie\n"
+            "<:pink_arrow:1511781018028343447> 🏴 • Sailor Piece\n"
+            "<:pink_arrow:1511781018028343447> 🌾 • Sawah Indo\n"
+            "<:pink_arrow:1511781018028343447> <:sr_tangleslime:1511973089762873377> • Slime Rng\n\n"
+
+            "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
+
+            "> -# <:foxnote:1511780221030895678> **Notes :**\n"
+            "> -# 1. Harga dan item terupdate!\n"
+            "> -# 2. Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
+            "> -# 3. Feel free untuk request map yang belum tersedia."
+        ),
         color=COLOR
     )
 
 
-    embed.set_footer(
-        text="MYST STORE"
-    )
-
-
     await interaction.channel.send(
         embed=embed,
         view=GamePricelistView()
@@ -1041,55 +1066,7 @@ async def listpricelist(
 
 
     await interaction.response.send_message(
-        "✅ Panel berhasil dibuat.",
-        ephemeral=True
-    )
-
-
-embed = discord.Embed(
-    title=(
-        "<:Gifting_Hero:1527270420921716807> "
-        "PRICELIST GIFT IN GAME BY MYST STORE "
-        "<:PixelSparkle:1511778680874209402>"
-    ),
-    description=(
-        "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
-
-        "🛒 **Pilih Game Favoritmu!**\n"
-        "*Gunakan menu di bawah untuk melihat daftar harga gift in game terbaru.*\n\n"
-
-        "<:playing:1511777875143950487> **__Tersedia :__**\n"
-
-        "<:pink_arrow:1511781018028343447> ⚔️   •   Blade Ball\n"
-        "<:pink_arrow:1511781018028343447> 🏡   •   Bloxburg\n"
-        "<:pink_arrow:1511781018028343447> 🚗   •   CDID\n"
-        "<:pink_arrow:1511781018028343447> 🎣   •   Fisch\n"
-        "<:pink_arrow:1511781018028343447> 🐟   •   Fish It\n"
-        "<:pink_arrow:1511781018028343447> 🌱   •   Grow A Garden\n"
-        "<:pink_arrow:1511781018028343447> 🧌   •   Hunty Zombie\n"
-        "<:pink_arrow:1511781018028343447> 🏴   •   Sailor Piece\n"
-        "<:pink_arrow:1511781018028343447> 🌾   •   Sawah Indo\n"
-        "<:pink_arrow:1511781018028343447> <:sr_tangleslime:1511973089762873377>   •   Slime Rng\n\n"
-
-        "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
-
-        "> -# <:foxnote:1511780221030895678> **Notes :**\n"
-        "> -# 1. Harga dan item terupdate!\n"
-        "> -# 2. Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
-        "> -# 3. Feel free untuk request map yang belum tersedia."
-    ),
-    color=COLOR
-)
-
-
-    await interaction.channel.send(
-        embed=embed,
-        view=GamePricelistView()
-    )
-
-
-    await interaction.response.send_message(
-        "✅ Panel berhasil dibuat.",
+        "✅ Panel pricelist berhasil dibuat.",
         ephemeral=True
     )
 
