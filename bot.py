@@ -1024,9 +1024,8 @@ async def listpricelist(
 
     embed = discord.Embed(
         description=(
-            "## <:Gifting_Hero:1527270420921716807> "
-            "PRICELIST GIFT IN GAME BY MYST STORE "
-            "<:PixelSparkle:1511778680874209402>\n"
+            "## PRICELIST GIFT IN GAME BY MYST STORE "
+            "<:Gifting_Hero:1527270420921716807>\n"
 
             "**⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆**\n\n"
 
