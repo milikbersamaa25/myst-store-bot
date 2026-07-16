@@ -1026,7 +1026,7 @@ async def listpricelist(
         description=(
             "## <:Gifting_Hero:1527270420921716807> "
             "PRICELIST GIFT IN GAME BY MYST STORE "
-            "<:PixelSparkle:1511778680874209402>\n\n"
+            "<:PixelSparkle:1511778680874209402>\n"
 
             "**⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆**\n\n"
 
@@ -1044,7 +1044,7 @@ async def listpricelist(
             "🧌　•　Hunty Zombie\n"
             "🏴　•　Sailor Piece\n"
             "🌾　•　Sawah Indo\n"
-            "<:sr_tangleslime:1511973089762873377>　•　Slime Rng\n\n"
+            "<:sr_tangleslime:1511973089762873377>　•　Slime Rng\n"
             "**⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆**\n\n"
 
             "> -# <:foxnote:1511780221030895678> **Notes :**\n"
