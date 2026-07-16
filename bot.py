@@ -1021,26 +1021,40 @@ async def listpricelist(
         return
 
 
-    embed = discord.Embed(
-        title="🎁 PRICELIST GIFT IN GAME\nBY MYST STORE",
-        description=(
-            "🛒 **Pilih Game Favoritmu**\n\n"
-            "Gunakan menu di bawah untuk melihat "
-            "daftar harga gift in game terbaru.\n\n"
+embed = discord.Embed(
+    title=(
+        "<:Gifting_Hero:1527270420921716807> "
+        "PRICELIST GIFT IN GAME BY MYST STORE "
+        "<:PixelSparkle:1511778680874209402>"
+    ),
+    description=(
+        "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
 
-            "🎯 **Tersedia:**\n"
-            "🐟 Fish It\n"
-            "⚔️ Blox Fruits\n"
-            "🥚 Pet Simulator\n\n"
+        "🛒 **Pilih Game Favoritmu!**\n"
+        "*Gunakan menu di bawah untuk melihat daftar harga gift in game terbaru.*\n\n"
 
-            "━━━━━━━━━━━━━━\n\n"
+        "<:playing:1511777875143950487> **__Tersedia :__**\n"
 
-            "✨ Harga dan item selalu update!\n"
-            "💎 Khusus member dengan tag MYST "
-            "mendapatkan diskon pembelian"
-        ),
-        color=COLOR
-    )
+        "<:pink_arrow:1511781018028343447> ⚔️   •   Blade Ball\n"
+        "<:pink_arrow:1511781018028343447> 🏡   •   Bloxburg\n"
+        "<:pink_arrow:1511781018028343447> 🚗   •   CDID\n"
+        "<:pink_arrow:1511781018028343447> 🎣   •   Fisch\n"
+        "<:pink_arrow:1511781018028343447> 🐟   •   Fish It\n"
+        "<:pink_arrow:1511781018028343447> 🌱   •   Grow A Garden\n"
+        "<:pink_arrow:1511781018028343447> 🧌   •   Hunty Zombie\n"
+        "<:pink_arrow:1511781018028343447> 🏴   •   Sailor Piece\n"
+        "<:pink_arrow:1511781018028343447> 🌾   •   Sawah Indo\n"
+        "<:pink_arrow:1511781018028343447> <:sr_tangleslime:1511973089762873377>   •   Slime Rng\n\n"
+
+        "⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂⠁⠁⠂⠄⠄⠂ ⠂⠄⠄⠂☆\n\n"
+
+        "> -# <:foxnote:1511780221030895678> **Notes :**\n"
+        "> -# 1. Harga dan item terupdate!\n"
+        "> -# 2. Khusus member dengan tag Myst akan mendapatkan diskon pembelian.\n"
+        "> -# 3. Feel free untuk request map yang belum tersedia."
+    ),
+    color=COLOR
+)
 
 
     embed.set_footer(
