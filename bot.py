@@ -32,6 +32,7 @@ PRODUCT_FILE = BASE_DIR / "cashier_products.json"
 CATEGORY_FILE = BASE_DIR / "cashier_categories.json"
 CUSTOM_PRICELIST_FILE = BASE_DIR / "custom_pricelists.json"
 CUSTOM_EMBED_FILE = BASE_DIR / "custom_embeds.json"
+GAME_PRICELIST_FILE = BASE_DIR / "game_pricelists.json"
 
 CUSTOM_PRICELIST_DIR = BASE_DIR / "pricelist_media"
 CUSTOM_PRICELIST_DIR.mkdir(exist_ok=True)
@@ -132,6 +133,7 @@ PRODUCTS = load_json(PRODUCT_FILE, [])
 CATEGORIES = load_json(CATEGORY_FILE, [])
 CUSTOM_PRICELISTS = load_json(CUSTOM_PRICELIST_FILE, {})
 CUSTOM_EMBEDS = load_json(CUSTOM_EMBED_FILE, {})
+GAME_PRICELISTS = load_json(GAME_PRICELIST_FILE, {})
 vip_sessions = load_json(VIP_FILE, {})
 
 # Kategori Lainnya wajib selalu ada.
@@ -162,6 +164,10 @@ def save_pricelists():
 
 def save_custom_embeds():
     save_json(CUSTOM_EMBED_FILE, CUSTOM_EMBEDS)
+
+
+def save_game_pricelists():
+    save_json(GAME_PRICELIST_FILE, GAME_PRICELISTS)
 
 
 def save_vip_sessions():
@@ -905,6 +911,301 @@ async def embed_kirim_ulang(
             f"❌ Gagal mengirim ulang embed.\n{e}",
             ephemeral=True
         )
+
+
+# =========================================================
+# GAME PRICELIST SYSTEM BY MYST STORE
+# =========================================================
+
+class GamePricelistSelect(Select):
+
+    def __init__(self):
+
+        options = []
+
+        for key, data in GAME_PRICELISTS.items():
+            options.append(
+                discord.SelectOption(
+                    label=data["name"][:100],
+                    emoji=data.get("emoji", "🎮"),
+                    value=key
+                )
+            )
+
+        if not options:
+            options.append(
+                discord.SelectOption(
+                    label="Belum ada pricelist",
+                    value="none"
+                )
+            )
+
+        super().__init__(
+            placeholder="🎮 Pilih Game",
+            options=options[:25]
+        )
+
+
+    async def callback(self, interaction: discord.Interaction):
+
+        key = self.values[0]
+
+        if key == "none":
+            await interaction.response.send_message(
+                "Belum ada pricelist.",
+                ephemeral=True
+            )
+            return
+
+
+        data = GAME_PRICELISTS.get(key)
+
+        if not data:
+            await interaction.response.send_message(
+                "Pricelist tidak ditemukan.",
+                ephemeral=True
+            )
+            return
+
+
+        try:
+            channel = interaction.guild.get_channel(
+                int(data["channel_id"])
+            )
+
+            msg = await channel.fetch_message(
+                int(data["message_id"])
+            )
+
+
+            await interaction.response.send_message(
+                embeds=msg.embeds,
+                ephemeral=True
+            )
+
+
+        except Exception as e:
+
+            await interaction.response.send_message(
+                f"❌ Error mengambil pricelist:\n{e}",
+                ephemeral=True
+            )
+
+
+class GamePricelistView(View):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=None
+        )
+
+        self.add_item(
+            GamePricelistSelect()
+        )
+
+@bot.tree.command(
+    name="listpricelist",
+    description="Admin membuat panel pricelist"
+)
+async def listpricelist(
+    interaction: discord.Interaction
+):
+
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin.",
+            ephemeral=True
+        )
+        return
+
+
+    embed = discord.Embed(
+        title="🎁 PRICELIST GIFT IN GAME\nBY MYST STORE",
+        description=(
+            "🛒 **Pilih Game Favoritmu**\n\n"
+            "Gunakan menu di bawah untuk melihat "
+            "daftar harga gift in game terbaru.\n\n"
+
+            "🎯 **Tersedia:**\n"
+            "🐟 Fish It\n"
+            "⚔️ Blox Fruits\n"
+            "🥚 Pet Simulator\n\n"
+
+            "━━━━━━━━━━━━━━\n\n"
+
+            "✨ Harga dan item selalu update!\n"
+            "💎 Khusus member dengan tag MYST "
+            "mendapatkan diskon pembelian"
+        ),
+        color=COLOR
+    )
+
+
+    embed.set_footer(
+        text="MYST STORE"
+    )
+
+
+    await interaction.channel.send(
+        embed=embed,
+        view=GamePricelistView()
+    )
+
+
+    await interaction.response.send_message(
+        "✅ Panel berhasil dibuat.",
+        ephemeral=True
+    )
+
+# =========================================================
+# ADD GAME PRICELIST
+# =========================================================
+
+@bot.tree.command(
+    name="pricelist_add",
+    description="Admin menambahkan game ke dropdown pricelist"
+)
+@app_commands.describe(
+    nama_game="Nama game",
+    emoji="Emoji game",
+    message_link="Link message embed pricelist admin"
+)
+async def pricelist_add(
+    interaction: discord.Interaction,
+    nama_game: str,
+    emoji: str,
+    message_link: str
+):
+
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin.",
+            ephemeral=True
+        )
+        return
+
+
+    match = re.search(
+        r"/channels/(\d+)/(\d+)/(\d+)",
+        message_link
+    )
+
+
+    if not match:
+        await interaction.response.send_message(
+            "❌ Link message Discord tidak valid.",
+            ephemeral=True
+        )
+        return
+
+
+    guild_id = match.group(1)
+    channel_id = match.group(2)
+    message_id = match.group(3)
+
+
+    key = normalize_key(nama_game).replace(" ", "_")
+
+
+    GAME_PRICELISTS[key] = {
+        "name": nama_game.strip(),
+        "emoji": emoji.strip(),
+        "guild_id": guild_id,
+        "channel_id": channel_id,
+        "message_id": message_id
+    }
+
+
+    save_game_pricelists()
+
+
+    await interaction.response.send_message(
+        f"✅ Pricelist **{nama_game}** berhasil ditambahkan.",
+        ephemeral=True
+    )
+
+@bot.tree.command(
+    name="pricelist_list",
+    description="Admin melihat daftar pricelist"
+)
+async def pricelist_list(
+    interaction: discord.Interaction
+):
+
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin.",
+            ephemeral=True
+        )
+        return
+
+
+    if not GAME_PRICELISTS:
+
+        await interaction.response.send_message(
+            "Belum ada pricelist.",
+            ephemeral=True
+        )
+        return
+
+
+    lines = []
+
+    for key, data in GAME_PRICELISTS.items():
+
+        lines.append(
+            f"{data.get('emoji','🎮')} **{data['name']}**\n"
+            f"Message ID: `{data['message_id']}`"
+        )
+
+
+    await interaction.response.send_message(
+        "\n\n".join(lines),
+        ephemeral=True
+    )
+
+@bot.tree.command(
+    name="pricelist_remove",
+    description="Admin menghapus game dari pricelist"
+)
+@app_commands.describe(
+    nama_game="Nama game yang ingin dihapus"
+)
+async def pricelist_remove(
+    interaction: discord.Interaction,
+    nama_game: str
+):
+
+    if not is_admin(interaction.user):
+        await interaction.response.send_message(
+            "❌ Hanya admin.",
+            ephemeral=True
+        )
+        return
+
+
+    key = normalize_key(nama_game).replace(" ", "_")
+
+
+    if key not in GAME_PRICELISTS:
+
+        await interaction.response.send_message(
+            "❌ Game tidak ditemukan.",
+            ephemeral=True
+        )
+        return
+
+
+    GAME_PRICELISTS.pop(key)
+
+    save_game_pricelists()
+
+
+    await interaction.response.send_message(
+        f"🗑️ Pricelist **{nama_game}** berhasil dihapus.",
+        ephemeral=True
+    )
 
 
 # =========================================================
@@ -2132,14 +2433,29 @@ async def on_message(message: discord.Message):
 # =========================================================
 @bot.event
 async def on_ready():
+
     try:
         save_categories()
         save_products()
+
+        bot.add_view(
+            GamePricelistView()
+        )
+
         synced = await bot.tree.sync()
-        print(f"Bot siap sebagai {bot.user}. Slash synced: {len(synced)}")
-        print(f"Data folder aktif: {BASE_DIR}")
+
+        print(
+            f"Bot siap sebagai {bot.user}. Slash synced: {len(synced)}"
+        )
+
+        print(
+            f"Data folder aktif: {BASE_DIR}"
+        )
+
     except Exception as e:
-        print(f"Gagal sync slash command: {e}")
+        print(
+            f"Gagal sync slash command: {e}"
+        )
 
 
 @bot.event
