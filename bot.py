@@ -942,7 +942,8 @@ class GamePricelistSelect(Select):
 
         super().__init__(
             placeholder="🎮 Pilih Game",
-            options=options[:25]
+            options=options[:25],
+            custom_id="game_pricelist_select"
         )
 
 
