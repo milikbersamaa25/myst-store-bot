@@ -924,15 +924,18 @@ class GamePricelistSelect(Select):
         options = []
 
         for key, data in GAME_PRICELISTS.items():
+
             options.append(
                 discord.SelectOption(
-                    label=data["name"][:100],
+                    label=data.get("name", key)[:100],
                     emoji=data.get("emoji", "🎮"),
                     value=key
                 )
             )
 
+
         if not options:
+
             options.append(
                 discord.SelectOption(
                     label="Belum ada pricelist",
@@ -940,64 +943,98 @@ class GamePricelistSelect(Select):
                 )
             )
 
+
         super().__init__(
-            placeholder="🎮 Pilih Game",
+            placeholder="🎮 Pilih Game Favoritmu",
             options=options[:25],
             custom_id="game_pricelist_select"
         )
 
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
 
         key = self.values[0]
 
+
         if key == "none":
+
             await interaction.response.send_message(
-                "Belum ada pricelist.",
+                "❌ Belum ada pricelist.",
                 ephemeral=True
             )
+
             return
 
 
         data = GAME_PRICELISTS.get(key)
 
+
         if not data:
+
             await interaction.response.send_message(
-                "Pricelist tidak ditemukan.",
+                "❌ Pricelist tidak ditemukan.",
                 ephemeral=True
             )
+
             return
 
 
-try:
+        try:
 
-    channel = interaction.guild.get_channel(
-        int(data["channel_id"])
-    )
-
-    embeds = []
-
-    for message_id in data["message_ids"]:
-
-        msg = await channel.fetch_message(
-            int(message_id)
-        )
-
-        embeds.extend(msg.embeds)
+            channel = interaction.guild.get_channel(
+                int(data["channel_id"])
+            )
 
 
-    await interaction.response.send_message(
-        embeds=embeds[:10],
-        ephemeral=True
-    )
+            if not channel:
+
+                await interaction.response.send_message(
+                    "❌ Channel pricelist tidak ditemukan.",
+                    ephemeral=True
+                )
+
+                return
 
 
-except Exception as e:
+            embeds = []
 
-    await interaction.response.send_message(
-        f"❌ Error mengambil pricelist:\n{e}",
-        ephemeral=True
-    )
+
+            for message_id in data.get("message_ids", []):
+
+                msg = await channel.fetch_message(
+                    int(message_id)
+                )
+
+                embeds.extend(
+                    msg.embeds
+                )
+
+
+            if not embeds:
+
+                await interaction.response.send_message(
+                    "❌ Embed pricelist kosong.",
+                    ephemeral=True
+                )
+
+                return
+
+
+            await interaction.response.send_message(
+                embeds=embeds[:10],
+                ephemeral=True
+            )
+
+
+        except Exception as e:
+
+            await interaction.response.send_message(
+                f"❌ Error mengambil pricelist:\n{e}",
+                ephemeral=True
+            )
 
 
 class GamePricelistView(View):
