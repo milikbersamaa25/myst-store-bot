@@ -1118,18 +1118,18 @@ async def listpricelist(
 
 @bot.tree.command(
     name="pricelist_add",
-    description="Admin menambahkan game pricelist"
+    description="Admin menambahkan pricelist game"
 )
 @app_commands.describe(
     nama_game="Nama game",
     emoji="Emoji game",
-    message_ids="ID message embed, pisahkan dengan koma"
+    message_links="Link message embed, pisahkan dengan koma"
 )
 async def pricelist_add(
     interaction: discord.Interaction,
     nama_game: str,
     emoji: str,
-    message_ids: str
+    message_links: str
 ):
 
     if not is_admin(interaction.user):
@@ -1140,22 +1140,57 @@ async def pricelist_add(
         return
 
 
-    ids = [
+    links = [
         x.strip()
-        for x in message_ids.split(",")
+        for x in message_links.split(",")
         if x.strip()
     ]
 
 
-    GAME_PRICELISTS[
-        normalize_key(nama_game).replace(" ", "_")
-    ] = {
+    message_ids = []
+    channel_id = None
+
+
+    for link in links:
+
+        match = re.search(
+            r"/channels/\d+/(\d+)/(\d+)",
+            link
+        )
+
+
+        if not match:
+
+            await interaction.response.send_message(
+                f"❌ Link tidak valid:\n{link}",
+                ephemeral=True
+            )
+
+            return
+
+
+        channel_id = match.group(1)
+
+        message_id = match.group(2)
+
+        message_ids.append(message_id)
+
+
+
+    key = normalize_key(
+        nama_game
+    ).replace(" ", "_")
+
+
+    GAME_PRICELISTS[key] = {
 
         "name": nama_game,
 
         "emoji": emoji,
 
-        "message_ids": ids
+        "channel_id": channel_id,
+
+        "message_ids": message_ids
     }
 
 
@@ -1163,7 +1198,8 @@ async def pricelist_add(
 
 
     await interaction.response.send_message(
-        f"✅ Pricelist **{nama_game}** disimpan dengan {len(ids)} embed.",
+        f"✅ Pricelist **{nama_game}** berhasil disimpan.\n"
+        f"📄 Total embed: {len(message_ids)}",
         ephemeral=True
     )
 
